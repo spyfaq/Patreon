@@ -29,11 +29,6 @@ def newest_predictions() -> str:
         logger.log('error', f'File not found..')
         return('\\99999999')
 
-def dataselection(df):
-    df['History %'] = df['History %'].replace('-', np.nan)
-    dfpd = df.sort_values(by=['History %', 'Hometeam GpG', 'Awayteam GpG', 'Prediction %'], ascending=False, na_position='last').groupby('Date').head(10)
-    return dfpd
-
 def fetchdata(filename):
     logger.log('info', f'Loading file..', filename)
     df = pd.read_csv(filename)
@@ -60,6 +55,7 @@ def fetchdata(filename):
     tier1_df = tier1_df.sort_values(by=['History %', 'Hometeam GpG', 'Awayteam GpG', 'Prediction %'], ascending=False, na_position='last').groupby('Date').head(10)
     tier1_df.drop(columns='Prediction %', inplace=True)
     tier1_df = tier1_df.sort_values(by=['HomeTeam', 'Date'])
+    tier1_df['History %'] = "'"+tier1_df['History %']
     tier1_df.to_csv(PUBLISHPATH + f'Tier1_{datesave}.csv', index=False)
 
     logger.log('info', f'Preparing Tier2 file..')
@@ -86,6 +82,7 @@ def fetchdata(filename):
     # Group by date and prediction, then apply custom sorting
     result = tier2_df.groupby(['Date', 'Prediction']).apply(custom_sort)
     result.drop(columns='Prediction %', inplace=True)
+    result['History %'] = "'"+result['History %']
     result.to_csv(PUBLISHPATH + f'Tier2_{datesave}.csv', index=False)
 
     logger.log('info', f'Process completed.. Files are available..', PUBLISHPATH)

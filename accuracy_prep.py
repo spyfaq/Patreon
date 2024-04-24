@@ -64,6 +64,9 @@ def fetchaccuracy(date, results):
    
    logger.log('info', 'Checking accuracy predictions..')
    def check_accuracy(row):
+        if (np.isnan(row['FTHG'])):
+            return np.NaN
+        
         if row['Prediction'] == '1' and row['FTHG'] > row['FTAG']:
             return True
         elif row['Prediction'] == '2' and row['FTHG'] < row['FTAG']:

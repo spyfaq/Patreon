@@ -100,7 +100,9 @@ def fetchaccuracy(date, results):
    tier2 = pd.merge(tier2_df, results, on=['HomeTeam', 'AwayTeam', 'Date'], how='left')
    tier2.drop(['Div'], axis=1, inplace=True)
    tier2['Prediction_Accuracy'] = tier2.apply(check_accuracy, axis=1)
-    
+
+   tier1.to_csv(PUBLISHPATH + f'Tier1_updated_{date}', index=False)
+   tier2.to_csv(PUBLISHPATH + f'Tier2_updated_{date}', index=False)
    return tier1, tier2
 
 def niceplots(tier1, tier2):
@@ -108,7 +110,7 @@ def niceplots(tier1, tier2):
     tier1_counts = tier1['Prediction_Accuracy'].value_counts().sort_index()
     tier2_counts = tier2['Prediction_Accuracy'].value_counts().sort_index()
 
-    color_map = {True: '#2ca02c', False: '#d62728'}
+    color_map = {True: '#3CB371', False: '#CCCCCC'}
     fig = make_subplots(rows=1, cols=2, subplot_titles=('Tier 1 Prediction Accuracy', 'Tier 2 Prediction Accuracy'), specs=[[{'type':'domain'}, {'type':'domain'}]])
     fig.add_trace(go.Pie(
         labels=tier1_counts.index, values=tier1_counts.values, 
@@ -135,12 +137,12 @@ def niceplots(tier1, tier2):
     fig = make_subplots(rows=1, cols=2, subplot_titles=('Tier 1 Accuracy per Prediction', 'Tier 2 Accuracy per Prediction'))
     fig.add_trace(go.Bar(
         x=tier1_accuracy['Prediction'], y=tier1_accuracy['Prediction_Accuracy'], 
-        text=tier1_accuracy['Prediction_Accuracy'], textposition='outside', texttemplate='%{text:.0s}',
+        text=tier1_accuracy['Prediction_Accuracy'], textposition='outside', texttemplate='%{text:.0s}', marker_color='#3CB371',
         name='Tier 1'), row=1, col=1)
     
     fig.add_trace(go.Bar(
         x=tier2_accuracy['Prediction'], y=tier2_accuracy['Prediction_Accuracy'], 
-        text=tier2_accuracy['Prediction_Accuracy'], textposition='outside', texttemplate='%{text:.0s}', 
+        text=tier2_accuracy['Prediction_Accuracy'], textposition='outside', texttemplate='%{text:.0s}', marker_color='#3CB371', 
         name='Tier 2'), row=1, col=2)
     
     fig.update_layout(title='Accuracy per Prediction Category', showlegend=False)
@@ -150,8 +152,29 @@ def niceplots(tier1, tier2):
     fig.update_yaxes(title_text='Accuracy %', row=1, col=2)
     fig.write_image(PUBLISHPATH+f"predictions_accuracy_plot_{datesave}.png")
 
-    #logger.log('info', 'Creating plots per league..')
-    #df = pd.concat([tier1, tier2], ignore_index=True)
+    logger.log('info', 'Creating plots per league..')
+    tier1_accuracy = tier1.groupby('Division')['Prediction_Accuracy'].mean().reset_index()
+    tier2_accuracy = tier2.groupby('Division')['Prediction_Accuracy'].mean().reset_index()
+    tier1_accuracy['Prediction_Accuracy'] *= 100
+    tier2_accuracy['Prediction_Accuracy'] *= 100
+
+    fig = make_subplots(rows=1, cols=2, subplot_titles=('Tier 1 Accuracy per League', 'Tier 2 Accuracy per League'))
+    fig.add_trace(go.Bar(
+        x=tier1_accuracy['Division'], y=tier1_accuracy['Prediction_Accuracy'], 
+        text=tier1_accuracy['Prediction_Accuracy'], textposition='outside', texttemplate='%{text:.0s}', marker_color='#3CB371',
+        name='Tier 1'), row=1, col=1)
+    
+    fig.add_trace(go.Bar(
+        x=tier2_accuracy['Division'], y=tier2_accuracy['Prediction_Accuracy'], 
+        text=tier2_accuracy['Prediction_Accuracy'], textposition='outside', texttemplate='%{text:.0s}', marker_color='#3CB371', 
+        name='Tier 2'), row=1, col=2)
+    
+    fig.update_layout(title='Accuracy per League', showlegend=False)
+    fig.update_xaxes(title_text='Division', row=1, col=1)
+    fig.update_xaxes(title_text='Division', row=1, col=2)
+    fig.update_yaxes(title_text='Accuracy %', row=1, col=1)
+    fig.update_yaxes(title_text='Accuracy %', row=1, col=2)
+    fig.write_image(PUBLISHPATH+f"division_accuracy_plot_{datesave}.png")
 
 def main():
     filename = newest_predictions()

@@ -125,7 +125,7 @@ def login_n_post(Titletext, Textdata, Tier):
 
     logger.log('info', f'Selecting viwers..')
     # Who can view
-    temp = driver.find_element(By.XPATH, '/html/body/div/div/div[4]/div/main/div[1]/div/div/div/div/div/div/div[1]/div[2]/div/div/div[2]/button/button/div/div[1]/div/div')
+    temp = driver.find_element(By.ID, 'audience-selector')
     temp.click()
 
     # Select tiers

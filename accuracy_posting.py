@@ -102,6 +102,7 @@ def login_n_post(Titletext, Textdata, Tier):
     # Files
     tier_acc = f'"tiers_accuracy_plot_{datesave}.png" '
     preds_acc = f'"predictions_accuracy_plot_{datesave}.png"'
+    divs_acc = f'"division_accuracy_plot_{datesave}.png"'
 
     upload_button = driver.find_element(By.XPATH, "/html/body/div/div/div[4]/div/main/div[1]/div/div/div/div/div/div[1]/div/div/div/div[1]/button")
     upload_button.click()
@@ -113,6 +114,7 @@ def login_n_post(Titletext, Textdata, Tier):
     pyautogui.hotkey("alt", "n")
     pyautogui.typewrite(tier_acc)
     pyautogui.typewrite(preds_acc)
+    pyautogui.typewrite(divs_acc)
     pyautogui.hotkey("alt", "o")
 
     time.sleep(10)

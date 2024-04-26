@@ -137,12 +137,12 @@ def niceplots(tier1, tier2):
     fig = make_subplots(rows=1, cols=2, subplot_titles=('Tier 1 Accuracy per Prediction', 'Tier 2 Accuracy per Prediction'))
     fig.add_trace(go.Bar(
         x=tier1_accuracy['Prediction'], y=tier1_accuracy['Prediction_Accuracy'], 
-        text=tier1_accuracy['Prediction_Accuracy'], textposition='outside', texttemplate='%{text:.0s}', marker_color='#3CB371',
+        text=tier1_accuracy['Prediction_Accuracy'], textposition='inside', texttemplate='%{text:.0s}', marker_color='#3CB371',
         name='Tier 1'), row=1, col=1)
     
     fig.add_trace(go.Bar(
         x=tier2_accuracy['Prediction'], y=tier2_accuracy['Prediction_Accuracy'], 
-        text=tier2_accuracy['Prediction_Accuracy'], textposition='outside', texttemplate='%{text:.0s}', marker_color='#3CB371', 
+        text=tier2_accuracy['Prediction_Accuracy'], textposition='inside', texttemplate='%{text:.0s}', marker_color='#3CB371', 
         name='Tier 2'), row=1, col=2)
     
     fig.update_layout(title='Accuracy per Prediction Category', showlegend=False)
@@ -161,12 +161,12 @@ def niceplots(tier1, tier2):
     fig = make_subplots(rows=1, cols=2, subplot_titles=('Tier 1 Accuracy per League', 'Tier 2 Accuracy per League'))
     fig.add_trace(go.Bar(
         x=tier1_accuracy['Division'], y=tier1_accuracy['Prediction_Accuracy'], 
-        text=tier1_accuracy['Prediction_Accuracy'], textposition='outside', texttemplate='%{text:.0s}', marker_color='#3CB371',
+        text=tier1_accuracy['Prediction_Accuracy'], textposition='inside', texttemplate='%{text:.0s}', marker_color='#3CB371',
         name='Tier 1'), row=1, col=1)
     
     fig.add_trace(go.Bar(
         x=tier2_accuracy['Division'], y=tier2_accuracy['Prediction_Accuracy'], 
-        text=tier2_accuracy['Prediction_Accuracy'], textposition='outside', texttemplate='%{text:.0s}', marker_color='#3CB371', 
+        text=tier2_accuracy['Prediction_Accuracy'], textposition='inside', texttemplate='%{text:.0s}', marker_color='#3CB371', 
         name='Tier 2'), row=1, col=2)
     
     fig.update_layout(title='Accuracy per League', showlegend=False)

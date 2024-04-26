@@ -181,7 +181,7 @@ def main():
     results = download_league_data()
     t1df, t2df = fetchaccuracy(filename, results)
     niceplots(t1df, t2df)
-
+    logger.log('info', f'Process completed.. Files are available..', PUBLISHPATH)
     return
 
 if __name__ == '__main__':
@@ -190,4 +190,7 @@ if __name__ == '__main__':
     LOGNAME = LOGNAME.replace('{date}', datesave) + '.json'
     logger = JSONLogger(log_file=LOGNAME, log_dir=LOGPATH)
 
-    main()
+    try:
+        main()
+    except Exception as e:
+        logger.log('critical', "Exception occured whie running", info=str(e))

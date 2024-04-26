@@ -173,6 +173,7 @@ def login_n_post(Titletext, Textdata, Tier):
 def main():
     login_n_post(TIER1TITLE, TIER1TEXT, 1)
     login_n_post(TIER2TITLE, TIER2TEXT, 2)
+    logger.log('info', f'Process completed..')
     return
 
 if __name__ == '__main__':
@@ -182,4 +183,7 @@ if __name__ == '__main__':
     LOGNAME = LOGNAME.replace('{date}', datesave) + '.json'
     logger = JSONLogger(log_file=LOGNAME, log_dir=LOGPATH)
 
-    main()
+    try:
+        main()
+    except Exception as e:
+        logger.log('critical', "Exception occured whie running", info=str(e))

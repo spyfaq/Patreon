@@ -149,7 +149,6 @@ def niceplots(tier1, tier2):
     fig.update_xaxes(title_text='Prediction', row=1, col=1)
     fig.update_xaxes(title_text='Prediction', row=1, col=2)
     fig.update_yaxes(title_text='Accuracy %', row=1, col=1)
-    fig.update_yaxes(title_text='Accuracy %', row=1, col=2)
     fig.write_image(PUBLISHPATH+f"predictions_accuracy_plot_{datesave}.png")
 
     logger.log('info', 'Creating plots per league..')
@@ -170,10 +169,9 @@ def niceplots(tier1, tier2):
         name='Tier 2'), row=1, col=2)
     
     fig.update_layout(title='Accuracy per League', showlegend=False)
-    fig.update_xaxes(title_text='Division', row=1, col=1)
-    fig.update_xaxes(title_text='Division', row=1, col=2)
+    fig.update_xaxes(title_text='League', row=1, col=1)
+    fig.update_xaxes(title_text='League', row=1, col=2)
     fig.update_yaxes(title_text='Accuracy %', row=1, col=1)
-    fig.update_yaxes(title_text='Accuracy %', row=1, col=2)
     fig.write_image(PUBLISHPATH+f"division_accuracy_plot_{datesave}.png")
 
 def main():

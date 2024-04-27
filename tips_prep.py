@@ -52,7 +52,15 @@ def fetchdata(filename):
     mask = ~tier1_df['Prediction'].isin(excluded_values)
     tier1_df = tier1_df[mask]
     tier1_df['History %'] = tier1_df['History %'].replace('-', np.nan)
-    tier1_df = tier1_df.sort_values(by=['History %', 'Hometeam GpG', 'Awayteam GpG', 'Prediction %'], ascending=False, na_position='last').groupby('Date').head(10)
+    tier1_df = tier1_df.sort_values(by=['History %', 'Hometeam GpG', 'Awayteam GpG', 'Prediction %'], ascending=False, na_position='last').groupby('Date')
+    
+    def filter_top_pred(group):
+        top_matches = group['HomeTeam'].unique()[:10]
+        return group[group['HomeTeam'].isin(top_matches)]
+
+    filtered_df = tier1_df.apply(filter_top_pred)
+    tier1_df = filtered_df.reset_index(drop=True)
+    
     tier1_df.drop(columns='Prediction %', inplace=True)
     tier1_df = tier1_df.sort_values(by=['HomeTeam', 'Date'])
     tier1_df['History %'] = "'"+tier1_df['History %']
@@ -77,9 +85,8 @@ def fetchdata(filename):
         elif group['Prediction'].iloc[0] == 'X':
             sorted_group = group.sort_values(by=['History %', 'Hometeam DpG', 'Awayteam DpG', 'Prediction %'], ascending=False)
             
-        return sorted_group.head(5)
+        return sorted_group.head(7)
 
-    # Group by date and prediction, then apply custom sorting
     result = tier2_df.groupby(['Date', 'Prediction']).apply(custom_sort)
     result.drop(columns='Prediction %', inplace=True)
     result['History %'] = "'"+result['History %']

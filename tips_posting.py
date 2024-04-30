@@ -129,7 +129,7 @@ def login_n_post(Titletext, Textdata, Tier):
     temp.click()
 
     # Select tiers
-    temp = driver.find_element(By.XPATH, "//div[text()='Select tiers']")
+    temp = driver.find_element(By.XPATH, "//div[text()='Selected tiers']")
     temp.click()
 
     # Tier 1

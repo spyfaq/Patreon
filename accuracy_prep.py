@@ -54,7 +54,7 @@ def download_league_data():
     
     combined_df = pd.concat(dfs, ignore_index=True)
     league_data = combined_df[['Div', 'Date', 'HomeTeam', 'AwayTeam', 'FTHG', 'FTAG']]
-    league_data['Date'] = pd.to_datetime(league_data['Date']).dt.strftime('%d-%m-%Y, %A')
+    league_data['Date'] = pd.to_datetime(league_data['Date'], format='%d/%m/%Y').dt.strftime('%d-%m-%Y, %A')
     return (league_data) 
 
 def fetchaccuracy(date, results):

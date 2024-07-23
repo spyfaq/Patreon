@@ -4,10 +4,11 @@
 import os, datetime, time
 from jsonlogger_class import JSONLogger
 
-DATAPATH = 'publish/'
+DATAPATH = 'predictions_data/'
+PUBLPATH = 'publish/'
 LOGPATH = 'logs/'
 
-listofpath = [DATAPATH, LOGPATH]
+listofpath = [DATAPATH, PUBLPATH, LOGPATH]
 
 ARCHPATH = 'archiver/'
 ARCHNAME = '{date}_archiver_logs'
@@ -49,7 +50,7 @@ def _housekeeping(days=15):
 
 
 if __name__ == '__main__':
-    os.chdir('D:\\Python Apps\\PATREON')
+    os.chdir(os.path.dirname(__file__))
     datesave = datetime.date.today().strftime('%Y%m%d')
     ARCHNAME = ARCHNAME.replace('{date}', datesave) + '.json'
     

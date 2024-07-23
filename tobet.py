@@ -10,7 +10,7 @@ from sklearn.metrics import accuracy_score
 import keras
 from keras.models import Sequential
 from keras.layers import LSTM, Dense, Dropout, Bidirectional
-from keras.wrappers.scikit_learn import KerasClassifier
+from scikeras.wrappers import KerasClassifier
 from keras.optimizers import Adam
 from skopt import BayesSearchCV
 warnings.filterwarnings('ignore')
@@ -136,18 +136,18 @@ def train_lstmmodel(df, tier):
         model.add(Dropout(dropout_rate))
         model.add(Dense(1, activation='sigmoid'))
         optimizer = Adam(learning_rate)
-        model.compile(optimizer=optimizer, loss='binary_crossentropy', metrics=['accuracy'])
+        model.compile(optimizer=optimizer, loss=custom_loss, metrics=['accuracy'])
         return model
 
     # Wrap the model with KerasClassifier for use in scikit-learn
-    model = KerasClassifier(build_fn=create_model, verbose=0)
+    model = KerasClassifier(model=create_model, verbose=0)
 
     # Define the initial broad hyperparameters grid
     param_dist = {
-    'units': (30, 100),             # Range for number of units
-    'dropout_rate': (0.1, 0.5),     # Range for dropout rate
-    'learning_rate': (1e-4, 1e-2, 'log-uniform'),  # Range for learning rate (log scale)
-    'batch_size': (10, 30),         # Discrete choices for batch size
+    'model__units': (30, 100),             # Range for number of units
+    'model__dropout_rate': (0.1, 0.5),     # Range for dropout rate
+    'model__learning_rate': (1e-4, 1e-2, 'log-uniform'),  # Range for learning rate (log scale)
+    'model__batch_size': (10, 30),         # Discrete choices for batch size
     'epochs': (100, 200)            # Range for number of epochs
     }
 
@@ -251,7 +251,7 @@ def main(tier):
 
 
 if __name__ == '__main__':
-    #os.chdir('D:\\Python Apps\\Patreon')
+    os.chdir(os.path.dirname(__file__))
     datesave = datetime.date.today().strftime('%Y%m%d')
     LOGNAME = LOGNAME.replace('{date}', datesave) + '.json'
     logger = JSONLogger(log_file=LOGNAME, log_dir=LOGPATH)

@@ -12,7 +12,7 @@ import bettexts
 
 LOGPATH = 'logs/posting/'
 LOGNAME = '{date}_accuracypost_logs'
-PUBLISHPATH = 'D:/Python Apps/Patreon/publish/'
+PUBLISHPATH = 'publish/'
 
 def _inita():
     global USERMAIL, USERPASS, AccTITLE, AccTEXT
@@ -150,8 +150,8 @@ def main():
     return
 
 if __name__ == '__main__':
+    os.chdir(os.path.dirname(__file__))
     _inita()
-    os.chdir('D:\\Python Apps\\Patreon')
     datesave = datetime.date.today().strftime('%Y%m%d')
     LOGNAME = LOGNAME.replace('{date}', datesave) + '.json'
     logger = JSONLogger(log_file=LOGNAME, log_dir=LOGPATH)

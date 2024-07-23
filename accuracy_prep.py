@@ -12,6 +12,9 @@ LOGPATH = 'logs/data/'
 LOGNAME = '{date}_accuracy_logs'
 PUBLISHPATH = 'publish/'
 
+major_league_list = ['E0', 'E1', 'D1', 'I1', 'SP1', 'F1', 'N1', 'B1', 'P1', 'G1', 'D2', 'I2', 'SP2', 'F2', 'E2', 'SC0']
+minor_league_list = ['AUT', 'ARG', 'BRA', 'DNK', 'FIN', 'IRL', 'MEX', 'NOR', 'POL', 'ROU', 'RUS', 'SWE', 'SWZ', 'USA']
+
 def newest_predictions() -> str:
     logger.log('info', 'Searching latest prediction file..')
     files = os.listdir(PUBLISHPATH)
@@ -30,7 +33,7 @@ def newest_predictions() -> str:
         return('\\99999999')
 
 def download_league_data():
-    logger.log('info', 'Creating the urls needed..')
+    logger.log('info', 'Creating the major urls needed..')
     current_month = datetime.datetime.now().month
     current_year = datetime.datetime.now().year
 
@@ -42,11 +45,11 @@ def download_league_data():
     else:  # January to August
         checkyear = int(str(previous_year)[2:] + str(current_year)[2:])
 
-    logger.log('info', 'Downloading results..')
-    league_list = ['E0', 'E1', 'D1', 'I1', 'SP1', 'F1', 'N1', 'B1', 'P1', 'G1', 'D2', 'I2', 'SP2', 'F2', 'E2', 'SC0']
+    logger.log('info', 'Downloading major league results..')
+    
     prefix = "https://www.football-data.co.uk/"
     dfs = []
-    for lg in league_list:
+    for lg in major_league_list:
         pre = F"mmz4281/{checkyear}/{lg}.csv"
         path = prefix + pre
         df = pd.read_csv(path, encoding='latin1')
@@ -57,6 +60,41 @@ def download_league_data():
     league_data['Date'] = pd.to_datetime(league_data['Date'], format='%d/%m/%Y').dt.strftime('%d-%m-%Y, %A')
     return (league_data) 
 
+def download_league_data_():
+    logger.log('info', 'Creating n downloading the minor urls needed..')
+
+    prefix = "https://www.football-data.co.uk/"
+    dfs = []
+    for lg in major_league_list:
+        pre = F"new/{lg}.csv"
+        path = prefix + pre
+        df = pd.read_csv(path, encoding='latin1')
+        dfs.append(df)
+
+    combined_df = pd.concat(dfs, ignore_index=True)
+
+    def extract_season(season):
+        try:
+            if '/' in season:
+                start_year, end_year = season.split('/')
+                return pd.Series([int(start_year), int(end_year)])
+            else:
+                return pd.Series([int(season), int(season)])
+        except:
+            return pd.Series([int(season), int(season)])
+        
+    combined_df[['season_start', 'season_end']] = combined_df['Season'].apply(extract_season)
+
+    # Current season is the maximum season_end
+    current_season = combined_df['season_end'].max()
+
+    league_data = combined_df[combined_df['season_end'] == current_season]
+    league_data = league_data[['Home', 'Away', 'HG', 'AG', 'Res', 'time_diff']]
+    league_data = league_data.rename(columns={'HG': 'HomeGoals', 'AG': 'AwayGoals', 'Home': 'HomeTeam', 'Away': 'AwayTeam', 'Res': 'FTR'})
+    
+
+    return (league_data)
+
 def fetchaccuracy(date, results):
    logger.log('info', 'Latest published predictions loaded..')
    tier1_df = pd.read_csv(PUBLISHPATH + f'Tier1_{date}')
@@ -65,7 +103,7 @@ def fetchaccuracy(date, results):
    logger.log('info', 'Checking accuracy predictions..')
    def check_accuracy(row):
         if (np.isnan(row['FTHG'])):
-            return np.NaN
+            return np.nan
         
         if row['Prediction'] == '1' and row['FTHG'] > row['FTAG']:
             return True
@@ -176,14 +214,16 @@ def niceplots(tier1, tier2):
 
 def main():
     filename = newest_predictions()
-    results = download_league_data()
+    results_major = download_league_data()
+    results_minor = download_league_data_()   
+    results = pd.concat([results_major, results_minor])
     t1df, t2df = fetchaccuracy(filename, results)
     niceplots(t1df, t2df)
     logger.log('info', f'Process completed.. Files are available..', PUBLISHPATH)
     return
 
 if __name__ == '__main__':
-    os.chdir('D:\\Python Apps\\Patreon')
+    os.chdir(os.path.dirname(__file__))
     datesave = datetime.date.today().strftime('%Y%m%d')
     LOGNAME = LOGNAME.replace('{date}', datesave) + '.json'
     logger = JSONLogger(log_file=LOGNAME, log_dir=LOGPATH)

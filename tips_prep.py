@@ -9,7 +9,7 @@ from jsonlogger_class import JSONLogger
 LOGPATH = 'logs/data/'
 LOGNAME = '{date}_tipsselection_logs'
 DATANAME = 'my_prediction_data_{date1}_{date2}'
-DATAPATH = 'D:/Python Apps/bet-scrapper/predictions_data/'
+DATAPATH = 'predictions_data/'
 PUBLISHPATH = 'publish/'
 
 def newest_predictions() -> str:
@@ -103,7 +103,7 @@ def main():
 
 
 if __name__ == '__main__':
-    os.chdir('D:\\Python Apps\\Patreon')
+    os.chdir(os.path.dirname(__file__))
     datesave = datetime.date.today().strftime('%Y%m%d')
     LOGNAME = LOGNAME.replace('{date}', datesave) + '.json'
     logger = JSONLogger(log_file=LOGNAME, log_dir=LOGPATH)

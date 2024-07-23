@@ -24,7 +24,6 @@ LEAGUES = {
     'Norway' : 'NOR',
     'Poland' : 'POL',
     'Romania' : 'ROU',
-    'Russia' : 'RUS',
     'Sweden' : 'SWE',
     'Switzerland' : 'SWZ',
     'USA' : 'USA'
@@ -35,7 +34,7 @@ Path to save  data
 """
 DATAPATH = 'predictions_data/'
 DATANAME = 'my_prediction_minor_data_{date1}_{date2}'
-LOGPATH = 'logs/mine/'
+LOGPATH = 'logs/simu/'
 LOGNAME = '{date}_my_prediction_minor_logs'
 
 

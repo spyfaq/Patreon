@@ -11,7 +11,7 @@ from jsonlogger_class import JSONLogger
 """
 Running year and leagues
 """
-YEAR = '2324'
+YEAR = '2425'
 
 LEAGUES = {'En PremierLeague': 'E0',
                'En Championship': 'E1',
@@ -37,7 +37,7 @@ Path to save  data
 """
 DATAPATH = 'predictions_data/'
 DATANAME = 'my_prediction_major_data_{date1}_{date2}'
-LOGPATH = 'logs/mine/'
+LOGPATH = 'logs/simu/'
 LOGNAME = '{date}_my_prediction_major_logs'
 
 

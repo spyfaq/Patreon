@@ -104,6 +104,10 @@ def merging_func():
     last_minorfile = newest_predictions('minor')
     concdata = accumulate_data(last_majorfile, last_minorfile)
     saveto_csv(concdata)
+
+    logger.log('info', f'Deleting interm files..', info=f'{last_majorfile}, {last_minorfile}')
+    os.remove(last_majorfile)
+    os.remove(last_minorfile)
     logger.log('info', f'Process completed..')
     return
 

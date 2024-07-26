@@ -106,8 +106,13 @@ def merging_func():
     saveto_csv(concdata)
 
     logger.log('info', f'Deleting interm files..', info=f'{last_majorfile}, {last_minorfile}')
-    os.remove(last_majorfile)
-    os.remove(last_minorfile)
+
+    if last_majorfile != '\\99999999':
+        os.remove(last_majorfile)
+    
+    if last_minorfile != '\\99999999':
+        os.remove(last_minorfile)
+    
     logger.log('info', f'Process completed..')
     return
 

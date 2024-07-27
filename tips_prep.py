@@ -18,7 +18,7 @@ def newest_predictions() -> str:
 
     paths = []
     for basename in files:
-       if basename[0:8] == 'my_predi':
+       if 'my_prediction_data_' in basename:
         paths.append(os.path.join(DATAPATH, basename))
 
     try:

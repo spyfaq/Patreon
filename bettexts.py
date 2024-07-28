@@ -18,6 +18,14 @@ tier_1_posts = [
     {
         "Title": "📈 Tier 1 Exclusive: Dive into Over/Under Predictions! 🔮",
         "Text": "🚀 Hey there, Tier 1 Patrons! It's prediction time, and we're bringing you the inside scoop on over/under outcomes. From analyzing team form to assessing match dynamics, we've curated detailed insights to help you make informed betting decisions. Join the conversation below as we unravel the mysteries of football predictions together! 🌟 Don't miss out—your winning strategy awaits!"
+    },
+    {
+        "Title": "📈 Tier 1: Over/Under Predictions Revealed! 🔮",
+        "Text": "Explore our latest over/under predictions for this weekend’s matches! 📊⚽ Download the CSV below and boost your betting strategy! 🚀"
+    },
+    {
+        "Title": "🌟 Tier 1 Exclusive: Your Over/Under Insights! 📊",
+        "Text": "Get the inside scoop on over/under predictions for key matches! 🔍📈 Check out the CSV below and elevate your betting game today! 🎯"
     }
 ]
 
@@ -44,6 +52,33 @@ tier_2_posts = [
     }
 ]
 
+tier_3_posts = [
+    {
+        "Title": "🎯 Unveiling Tier 3: BetProphet.AI Precision Picks! 🚀",
+        "Text": "Get ready for the most accurate match result and over/under predictions! 📊⚽ Download the CSV below and let's win big together! 🎉"
+    }, 
+    {
+        "Title": "🌟 Exclusive Tier 3: BetProphet.AI Precision Picks Are Here! 📊",
+        "Text": "Unlock precise match forecasts and in-depth analysis now! 🔍📈 Check out the CSV below and elevate your betting strategy! 🚀🏆"
+    }, 
+    {
+        "Title": "📊 Tier 3 Insights: BetProphet.AI Precision Picks! 🎯",
+        "Text": "Dive into our expert match result and over/under predictions! 📈⚽ Download the CSV below and enhance your betting game! 🎉"
+    },
+    {
+        "Title": "🚀 Tier 3 Exclusive: Precision Picks by BetProphet.AI! 🌟",
+        "Text": "Access the most reliable match predictions and over/under insights! 🔮📊 Download the CSV below and let's make smart bets together! 🎉"
+    },
+    {
+        "Title": "🎯 Tier 3: BetProphet.AI Precision Picks Are Here! 🚀",
+        "Text": "Experience the pinnacle of betting with our most accurate match predictions! 📊⚽ Download the CSV below and let’s win big together! 🌟"
+    },
+    {
+        "Title": "🌟 Tier 3 Exclusive: Precision Picks by BetProphet.AI! 📊",
+        "Text": "Unlock expert insights with our detailed match forecasts and over/under predictions! 🔍📈 Download the CSV below and take your betting strategy to the next level! 🚀"
+    }
+    ]
+
 accuracy_posts = [
     {
         "Title": "📊 Betting Accuracy Unveiled: Tier 1 vs Tier 2 📈",
@@ -56,5 +91,5 @@ accuracy_posts = [
     {
         "Title": "📊 Deciphering Betting Brilliance: Tiered Analysis Unveiled! 🎯",
         "Text": "🌟 Embark on a quest for enlightenment as we delve into the depths of tiered analysis! Tier 1 and Tier 2, each holding the key to untold riches in the realm of football predictions. But which tier truly reigns supreme in the arena of betting brilliance? Join us as we peel back the layers of statistical mastery and reveal the truth behind our predictive prowess. Prepare to be astounded as we unveil the secrets of our tiered insights and unlock the pathway to betting success! 💰"
-    }
+    },
 ]

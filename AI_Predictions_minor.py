@@ -546,7 +546,7 @@ if __name__ == '__main__':
         try:
             params = solve_parameters_decay(league_data)
         except Exception as e:
-            logger.log('error', f"Simulating problem.. skipping {divis}.. ")
+            logger.log('error', f"Simulating problem.. skipping {divis}.. ", info=str(e))
             continue
 
         logger.log('info', f"Simulating matches for {divis}..")

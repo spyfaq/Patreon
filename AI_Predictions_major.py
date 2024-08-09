@@ -512,14 +512,26 @@ if __name__ == '__main__':
         pre = F"mmz4281/{YEAR}/{divis}.csv"
         path = prefix + pre
         logger.log('info', f"Downloading {divis} data..", info=str(path))
-        league_data = download_league_data(path)
+        try:
+            league_data = download_league_data(path)
+        except Exception as e:
+            logger.log('error', f"Error during downloading {divis} data..", info=str(e))
+            continue
 
         logger.log('info', f"Calculating standings for {divis}..")
         Standings = {}
-        standings_df = calc_standings(league_data)
+        try:
+            standings_df = calc_standings(league_data)
+        except Exception as e:
+            logger.log('error', f"Error during calculating standings for {divis}..", info=str(e))   
+            continue         
 
         logger.log('info', f"Calculating parameters for {divis}..")
-        params = solve_parameters_decay(league_data)
+        try:
+            params = solve_parameters_decay(league_data)
+        except Exception as e:
+            logger.log('error', f"Error during calculating parameters for {divis}..", info=str(e))   
+            continue             
 
         logger.log('info', f"Simulating matches for {divis}..")
         for match in next_match.loc[next_match['Div']==divis].index:
@@ -528,10 +540,14 @@ if __name__ == '__main__':
             mdate = next_match['Date'][match]
             mtime = next_match['Time'][match]
 
-            result = dixon_coles_simulate_match(params, ht, at)
-            res = resultdef(result, ht, at, divis, mdate, mtime, standings_df)
-            results_df = pd.concat([results_df, res])
-            div_df = pd.concat([div_df, res])
+            try:
+                result = dixon_coles_simulate_match(params, ht, at)
+                res = resultdef(result, ht, at, divis, mdate, mtime, standings_df)
+                results_df = pd.concat([results_df, res])
+                div_df = pd.concat([div_df, res])
+            except Exception as e:
+                logger.log('error', f"Error during simulation of match {ht}-{at}..", info=str(e))   
+                continue    
         
         try:
             logger.log('info', f"{divis} completed. Appending data to csv..")

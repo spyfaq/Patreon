@@ -7,13 +7,18 @@ from jsonlogger_class import JSONLogger
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder
 from sklearn.metrics import accuracy_score
-import keras
-from keras.models import Sequential
-from keras.layers import LSTM, Dense, Dropout, Bidirectional
+import numpy as np
 from scikeras.wrappers import KerasClassifier
-from keras.optimizers import Adam
 from skopt import BayesSearchCV
+from skopt.space import Real, Integer
+import tensorflow as tf
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import LSTM, Dropout, Dense, Bidirectional, Input
+from tensorflow.keras.optimizers import Adam
+from tensorflow.keras import losses
+
 warnings.filterwarnings('ignore')
+print("Num GPUs Available: ", len(tf.config.list_physical_devices('GPU')))
 
 LOGPATH = 'logs/data/'
 LOGNAME = '{date}_tobet_logs'
@@ -102,6 +107,7 @@ def train_lstmmodel(df, tier):
     target = 'Prediction_Accuracy'
 
     X = df[features]
+    X = X.dropna()
     y = df[target]
 
     # Normalize the features
@@ -120,7 +126,7 @@ def train_lstmmodel(df, tier):
     # Define your custom loss function here
     def custom_loss(y_true, y_pred):
         penalty_factor = 10.0  # Adjust this based on how strict you want to be
-        loss = keras.losses.binary_crossentropy(y_true, y_pred)
+        loss = losses.binary_crossentropy(y_true, y_pred)
         # Apply penalty to the loss
         loss *= penalty_factor
         return loss
@@ -128,38 +134,44 @@ def train_lstmmodel(df, tier):
     # Define a function to create the model, required for KerasClassifier
     def create_model(units=50, dropout_rate=0.2, learning_rate=0.01):
         model = Sequential()
-        model.add(Bidirectional(LSTM(units, activation='relu', return_sequences=True), input_shape=(X_train.shape[1], X_train.shape[2])))
+        
+        # Define input shape using Input layer
+        model.add(Input(shape=(X_train.shape[1], X_train.shape[2])))
+        
+        # Add layers
+        model.add(Bidirectional(LSTM(units, activation='relu', return_sequences=True)))
         model.add(Dropout(dropout_rate))
         model.add(Bidirectional(LSTM(units, activation='relu', return_sequences=True)))
         model.add(Dropout(dropout_rate))
         model.add(LSTM(units, activation='relu'))
         model.add(Dropout(dropout_rate))
         model.add(Dense(1, activation='sigmoid'))
-        optimizer = Adam(learning_rate)
+        
+        # Compile model
+        optimizer = Adam(learning_rate=learning_rate)
         model.compile(optimizer=optimizer, loss=custom_loss, metrics=['accuracy'])
         return model
 
-    # Wrap the model with KerasClassifier for use in scikit-learn
+    # Wrap the model with KerasClassifier
     model = KerasClassifier(model=create_model, verbose=0)
 
-    # Define the initial broad hyperparameters grid
+    # Define the hyperparameters space
     param_dist = {
-    'model__units': (30, 100),             # Range for number of units
-    'model__dropout_rate': (0.1, 0.5),     # Range for dropout rate
-    'model__learning_rate': (1e-4, 1e-2, 'log-uniform'),  # Range for learning rate (log scale)
-    'model__batch_size': (10, 30),         # Discrete choices for batch size
-    'epochs': (100, 200)            # Range for number of epochs
+        'model__units': Integer(30, 100),                # Number of units
+        'model__dropout_rate': Real(0.1, 0.5),            # Dropout rate
+        'model__learning_rate': Real(1e-4, 1e-2, prior='log-uniform'),  # Learning rate
+        'epochs': Integer(100, 200)                       # Number of epochs
     }
 
-    # Search for the best hyperparameters
+    # Set up BayesSearchCV
     bayes_search = BayesSearchCV(
-    estimator=model,
-    search_spaces=param_dist,
-    scoring='accuracy',  # You can use other metrics here such as 'precision', 'recall', etc.
-    cv=3,
-    n_iter=20,  # Number of parameter settings that are sampled
-    n_jobs=-1,  # Use all available CPUs
-    verbose=1
+        estimator=model,
+        search_spaces=param_dist,
+        scoring='accuracy',       # You can use other metrics such as 'precision', 'recall', etc.
+        cv=3,                    # Cross-validation folds
+        n_iter=20,               # Number of parameter settings to sample
+        n_jobs=-1,               # Use all available CPUs
+        verbose=1
     )
     
     bayes_search_result = bayes_search.fit(X_train, y_train)
@@ -260,8 +272,8 @@ if __name__ == '__main__':
         main('Tier1')
     except Exception as e:
         logger.log('critical', "Exception occured whie running Tier1", info=str(e))
-
+"""
     try:
         main('Tier2') 
     except Exception as e:
-        logger.log('critical', "Exception occured whie running Tier2", info=str(e))
+        logger.log('critical', "Exception occured whie running Tier2", info=str(e))"""

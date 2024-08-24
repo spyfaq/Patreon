@@ -184,7 +184,7 @@ def resultdef(result, ht, at, divis, mdata, mtime, standings, THRESH = 0.3):
             awaystats = awaystats.squeeze()
 
             tempser = pd.Series([divis, mdata, mtime, ht, at, res, dict[res].round(2), hist_perc, '','',''])
-            tempser = tempser.append([homestats, awaystats])
+            tempser = pd.concat([tempser, homestats, awaystats])
             tempser = tempser.tolist()
 
             outcome.loc[len(outcome)] = tempser
@@ -192,7 +192,7 @@ def resultdef(result, ht, at, divis, mdata, mtime, standings, THRESH = 0.3):
     return(outcome)
 
 def download_league_data(url):
-    league_data = pd.read_csv(url)
+    league_data = pd.read_csv(url, encoding='utf-8-sig')
     league_data['Date'] = pd.to_datetime(league_data['Date'], format='%d/%m/%Y')
     league_data['time_diff'] = (league_data['Date'].max() - league_data['Date']).dt.days
     league_data = league_data[['HomeTeam', 'AwayTeam', 'FTHG', 'FTAG', 'FTR', 'time_diff']]
@@ -201,7 +201,7 @@ def download_league_data(url):
     return (league_data)
 
 def upcoming(uri):
-    next_match = pd.read_csv(uri, encoding='cp1252')
+    next_match = pd.read_csv(uri, encoding='utf-8-sig')
     next_match = next_match[['Date','Time','Div','HomeTeam','AwayTeam']]
     next_match['Date'] = pd.to_datetime(next_match['Date'], format='%d/%m/%Y')
     return next_match
@@ -211,18 +211,17 @@ def save_results_(df):
         os.makedirs(DATAPATH)
     filename = DATAPATH + '/' + DATANAME
 
-    df['Date'] = pd.to_datetime(df['Date'], format='%Y-%m-$d')
-    df['Date'] = df['Date'].dt.strftime('%d-%m-%Y, %A')
-
     if os.path.exists(filename):
         temp = pd.read_csv(filename)
         towrite = pd.concat([temp,df])
     else:
         towrite = df
 
-    towrite['Date_temp'] = pd.to_datetime(towrite['Date'])
+    towrite['Date'] = pd.to_datetime(towrite['Date'], dayfirst=True)
+    towrite['Date'] = towrite['Date'].dt.strftime('%d-%m-%Y, %A')
+    towrite['Date_temp'] = pd.to_datetime(towrite['Date'], dayfirst=True)
     towrite['Time_temp'] = pd.to_datetime(towrite['Time']).dt.time
-    towrite['Datetime_temp'] = towrite.apply(lambda x: pd.datetime.combine(x['Date_temp'], x['Time_temp']), axis=1)
+    towrite['Datetime_temp'] = towrite.apply(lambda x: pd.Timestamp.combine(x['Date_temp'], x['Time_temp']), axis=1)
     towrite.sort_values(by=['Datetime_temp', 'HomeTeam'], inplace=True)
     towrite.drop(columns=['Date_temp', 'Time_temp', 'Datetime_temp'],inplace=True)
 
@@ -254,10 +253,8 @@ def historyfunc(path, hw, aw):
         nows = str(int(YEAR[2:4]) - year)
         bf = now + nows
         ncsv = path.replace(f"{YEAR}", bf)
-        old_data = pd.read_csv(ncsv, encoding='latin1')
+        old_data = pd.read_csv(ncsv, encoding='utf-8-sig')
         old_data = old_data[['HomeTeam', 'AwayTeam', 'FTHG', 'FTAG']]
-        old_data.head()
-        old_data.mean()
         ht_found = old_data.loc[(old_data["HomeTeam"] == hw)]
         try:
             if (ht_found.loc[ht_found["AwayTeam"] == aw]['FTHG'].iloc[0]) > (
@@ -542,12 +539,14 @@ if __name__ == '__main__':
 
             try:
                 result = dixon_coles_simulate_match(params, ht, at)
-                res = resultdef(result, ht, at, divis, mdate, mtime, standings_df)
-                results_df = pd.concat([results_df, res])
-                div_df = pd.concat([div_df, res])
             except Exception as e:
-                logger.log('error', f"Error during simulation of match {ht}-{at}..", info=str(e))   
+                logger.log('error', f"Issue encountered during simulation of {ht, at}", info=str(e))
                 continue    
+            
+            res = resultdef(result, ht, at, divis, mdate, mtime, standings_df)
+            results_df = pd.concat([results_df, res])
+            div_df = pd.concat([div_df, res])
+
         
         try:
             logger.log('info', f"{divis} completed. Appending data to csv..")

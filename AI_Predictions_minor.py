@@ -229,7 +229,7 @@ def download_league_data(url):
     return (league_data, old_league)
 
 def upcoming(uri):
-    next_match = pd.read_csv(uri, encoding='cp1252')
+    next_match = pd.read_csv(uri, encoding='utf-8-sig')
     next_match = next_match[['Date','Time', 'Country', 'Home','Away']]
     next_match = next_match.rename(columns={'Country': 'Div', 'Home': 'HomeTeam', 'Away': 'AwayTeam'})    
     next_match['Date'] = pd.to_datetime(next_match['Date'], format='%d/%m/%Y')

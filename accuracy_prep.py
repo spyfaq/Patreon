@@ -21,7 +21,7 @@ def newest_predictions() -> str:
 
     paths = []
     for basename in files:
-       if basename[0:4] == 'Tier':
+       if basename[0:4] == 'Tier' and 'lstm' not in basename:
         paths.append(os.path.join(PUBLISHPATH, basename))
 
     try:
@@ -52,7 +52,7 @@ def download_league_data():
     for lg in major_league_list:
         pre = F"mmz4281/{checkyear}/{lg}.csv"
         path = prefix + pre
-        df = pd.read_csv(path, encoding='latin1')
+        df = pd.read_csv(path, encoding='utf-8-sig')
         dfs.append(df)
     
     combined_df = pd.concat(dfs, ignore_index=True)
@@ -65,33 +65,17 @@ def download_league_data_():
 
     prefix = "https://www.football-data.co.uk/"
     dfs = []
-    for lg in major_league_list:
+    for lg in minor_league_list:
         pre = F"new/{lg}.csv"
         path = prefix + pre
-        df = pd.read_csv(path, encoding='latin1')
+        df = pd.read_csv(path, encoding='utf-8-sig')
         dfs.append(df)
 
     combined_df = pd.concat(dfs, ignore_index=True)
 
-    def extract_season(season):
-        try:
-            if '/' in season:
-                start_year, end_year = season.split('/')
-                return pd.Series([int(start_year), int(end_year)])
-            else:
-                return pd.Series([int(season), int(season)])
-        except:
-            return pd.Series([int(season), int(season)])
-        
-    combined_df[['season_start', 'season_end']] = combined_df['Season'].apply(extract_season)
-
-    # Current season is the maximum season_end
-    current_season = combined_df['season_end'].max()
-
-    league_data = combined_df[combined_df['season_end'] == current_season]
-    league_data = league_data[['Home', 'Away', 'HG', 'AG', 'Res', 'time_diff']]
-    league_data = league_data.rename(columns={'HG': 'HomeGoals', 'AG': 'AwayGoals', 'Home': 'HomeTeam', 'Away': 'AwayTeam', 'Res': 'FTR'})
-    
+    league_data = combined_df[['Country', 'Date', 'Home', 'Away', 'HG', 'AG']]
+    league_data = league_data.rename(columns={'Country': 'Div', 'HG': 'FTHG', 'AG': 'FTAG', 'Home': 'HomeTeam', 'Away': 'AwayTeam'})
+    league_data['Date'] = pd.to_datetime(league_data['Date'], format='%d/%m/%Y').dt.strftime('%d-%m-%Y, %A')
 
     return (league_data)
 
@@ -99,6 +83,7 @@ def fetchaccuracy(date, results):
    logger.log('info', 'Latest published predictions loaded..')
    tier1_df = pd.read_csv(PUBLISHPATH + f'Tier1_{date}')
    tier2_df = pd.read_csv(PUBLISHPATH + f'Tier2_{date}')
+   tier3_df = pd.read_csv(PUBLISHPATH + f'Tier1_lstm_{date}')
    
    logger.log('info', 'Checking accuracy predictions..')
    def check_accuracy(row):
@@ -130,18 +115,35 @@ def fetchaccuracy(date, results):
             return True    
         else:
             return False
-
+   
+   # no results for most of the minor leagues
    tier1 = pd.merge(tier1_df, results, on=['HomeTeam', 'AwayTeam', 'Date'], how='left')
    tier1.drop(['Div'], axis=1, inplace=True)
    tier1['Prediction_Accuracy'] = tier1.apply(check_accuracy, axis=1)
-
+   check = tier1['Prediction_Accuracy'].isnull().sum()
+   if check > tier1.shape[0]*0.5:
+       logger.log('warning', 'Possible missing results for Tier1..', info=f'Data count: {tier1.shape[0]}, NaN count: {check}')    
+       raise 
+   
    tier2 = pd.merge(tier2_df, results, on=['HomeTeam', 'AwayTeam', 'Date'], how='left')
    tier2.drop(['Div'], axis=1, inplace=True)
    tier2['Prediction_Accuracy'] = tier2.apply(check_accuracy, axis=1)
+   check = tier2['Prediction_Accuracy'].isnull().sum()
+   if check > tier2.shape[0]*0.5:
+       logger.log('warning', 'Possible missing results for Tier2..', info=f'Data count{tier2.shape[0]}, NaN count{check}') 
+       raise  
 
+   tier3 = pd.merge(tier3_df, results, on=['HomeTeam', 'AwayTeam', 'Date'], how='left')
+   tier3.drop(['Div'], axis=1, inplace=True)
+   tier3['Prediction_Accuracy'] = tier3.apply(check_accuracy, axis=1)
+   check = tier3['Prediction_Accuracy'].isnull().sum()
+   if check > tier3.shape[0]*0.5:
+       logger.log('warning', 'Possible missing results for Tier2..', info=f'Data count{tier3.shape[0]}, NaN count{check}') 
+       raise  
+   
    tier1.to_csv(PUBLISHPATH + f'Tier1_updated_{date}', index=False)
    tier2.to_csv(PUBLISHPATH + f'Tier2_updated_{date}', index=False)
-   return tier1, tier2
+   return tier1, tier2, tier3
 
 def niceplots(tier1, tier2):
     logger.log('info', 'Creating plots per Tier..')
@@ -212,13 +214,55 @@ def niceplots(tier1, tier2):
     fig.update_yaxes(title_text='Accuracy %', row=1, col=1)
     fig.write_image(PUBLISHPATH+f"division_accuracy_plot_{datesave}.png")
 
+    logger.log('info', 'Creating plots per day..')
+    tier1_accuracy = tier1.groupby('Date')['Prediction_Accuracy'].mean().reset_index()
+    tier2_accuracy = tier2.groupby('Date')['Prediction_Accuracy'].mean().reset_index()
+    tier1_accuracy['Prediction_Accuracy'] *= 100
+    tier2_accuracy['Prediction_Accuracy'] *= 100
+
+    fig = make_subplots(rows=1, cols=2, subplot_titles=('Tier 1 Accuracy per League', 'Tier 2 Accuracy per League'))
+    fig.add_trace(go.Bar(
+        x=tier1_accuracy['Date'], y=tier1_accuracy['Prediction_Accuracy'], 
+        text=tier1_accuracy['Prediction_Accuracy'], textposition='inside', texttemplate='%{text:.0s}', marker_color='#3CB371',
+        name='Tier 1'), row=1, col=1)
+    
+    fig.add_trace(go.Bar(
+        x=tier2_accuracy['Date'], y=tier2_accuracy['Prediction_Accuracy'], 
+        text=tier2_accuracy['Prediction_Accuracy'], textposition='inside', texttemplate='%{text:.0s}', marker_color='#3CB371', 
+        name='Tier 2'), row=1, col=2)
+    
+    fig.update_layout(title='Accuracy per Day', showlegend=False)
+    fig.update_xaxes(title_text='Day', row=1, col=1)
+    fig.update_xaxes(title_text='Day', row=1, col=2)
+    fig.update_yaxes(title_text='Accuracy %', row=1, col=1)
+    fig.write_image(PUBLISHPATH+f"date_accuracy_plot_{datesave}.png")
+
+def lstm_plot(df):
+    logger.log('info', 'Evaluating Tier3..')
+    bets = df.loc[df['tobet'] == True]
+
+    bets_accuracy = bets.groupby('Prediction')['Prediction_Accuracy'].mean().reset_index()
+    bets_accuracy['Prediction_Accuracy'] *= 100
+
+    fig = go.Figure()
+    fig.add_trace(go.Bar(
+        x=bets_accuracy['Prediction'], y=bets_accuracy['Prediction_Accuracy'], 
+        text=bets_accuracy['Prediction_Accuracy'], textposition='inside', texttemplate='%{text:.0s}', marker_color='#3CB371',
+        name='Tier 3'))
+    
+    fig.update_layout(title='Accuracy per Prediction Category', showlegend=False)
+    fig.update_xaxes(title_text='Prediction')
+    fig.update_yaxes(title_text='Accuracy %')
+    fig.write_image(PUBLISHPATH+f"tier3_evaluation_{datesave}.png")
+
 def main():
     filename = newest_predictions()
     results_major = download_league_data()
     results_minor = download_league_data_()   
     results = pd.concat([results_major, results_minor])
-    t1df, t2df = fetchaccuracy(filename, results)
+    t1df, t2df, t3df = fetchaccuracy(filename, results)
     niceplots(t1df, t2df)
+    lstm_plot(t3df)
     logger.log('info', f'Process completed.. Files are available..', PUBLISHPATH)
     return
 

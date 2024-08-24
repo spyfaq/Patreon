@@ -47,7 +47,7 @@ def fetchdata(filename):
     df['Awayteam LpG'] = (df['AT_away_loses'] / (df['AT_away_wins'] + df['AT_away_draws'] + df['AT_away_loses'])).round(2)
  
     logger.log('info', f'Preparing Tier1 file..')
-    tier1_df = df[df['Prediction'].str.contains('O')][['Division', 'Date', 'HomeTeam', 'AwayTeam', 'Prediction', 'Prediction %', 'History %', 'Hometeam GpG', 'Awayteam GpG']]
+    tier1_df = df[df['Prediction'].str.contains('O')][['Division', 'Date', 'Time', 'HomeTeam', 'AwayTeam', 'Prediction', 'Prediction %', 'History %', 'Hometeam GpG', 'Awayteam GpG']]
     excluded_values = ['hO0_5', 'aO0_5']
     mask = ~tier1_df['Prediction'].isin(excluded_values)
     tier1_df = tier1_df[mask]
@@ -67,7 +67,7 @@ def fetchdata(filename):
     tier1_df.to_csv(PUBLISHPATH + f'Tier1_{datesave}.csv', index=False)
 
     logger.log('info', f'Preparing Tier2 file..')
-    tier2_df = df[(df['Prediction'] == '1') | (df['Prediction'] == '2') | (df['Prediction'] == 'X')][['Division', 'Date', 'HomeTeam', 'AwayTeam', 'Prediction', 'Prediction %', 'History %', 'Hometeam WpG', 'Hometeam DpG', 'Hometeam LpG', 'Awayteam WpG', 'Awayteam DpG', 'Awayteam LpG']]
+    tier2_df = df[(df['Prediction'] == '1') | (df['Prediction'] == '2') | (df['Prediction'] == 'X')][['Division', 'Date', 'Time', 'HomeTeam', 'AwayTeam', 'Prediction', 'Prediction %', 'History %', 'Hometeam WpG', 'Hometeam DpG', 'Hometeam LpG', 'Awayteam WpG', 'Awayteam DpG', 'Awayteam LpG']]
     tier2_df['History %'] = tier2_df['History %'].replace('-', np.nan)
     
     # Define custom sorting function

@@ -143,6 +143,7 @@ def fetchaccuracy(date, results):
    
    tier1.to_csv(PUBLISHPATH + f'Tier1_updated_{date}', index=False)
    tier2.to_csv(PUBLISHPATH + f'Tier2_updated_{date}', index=False)
+   tier3.to_csv(PUBLISHPATH + f'Tier1_lstm_updated_{date}', index=False)
    return tier1, tier2, tier3
 
 def niceplots(tier1, tier2):

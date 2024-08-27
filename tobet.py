@@ -245,9 +245,9 @@ def predictions(filedateformat, model, encoder, scaler, tier):
     df['tobet'] = model.predict(X)
 
     if tier == 'Tier1':
-        df[['Division', 'Date', 'HomeTeam', 'AwayTeam', 'Prediction', 'History %', 'Hometeam GpG', 'Awayteam GpG', 'tobet']].to_csv(filename, index=False)
+        df[['Division', 'Date', 'Time', 'HomeTeam', 'AwayTeam', 'Prediction', 'History %', 'Hometeam GpG', 'Awayteam GpG', 'tobet']].to_csv(filename, index=False)
     else:
-        df[['Division', 'Date', 'HomeTeam', 'AwayTeam', 'Prediction', 'History %', 'Hometeam WpG', 'Hometeam DpG', 'Hometeam LpG', 'Awayteam WpG', 'Awayteam DpG', 'Awayteam LpG', 'tobet']].to_csv(filename, index=False)
+        df[['Division', 'Date', 'Time', 'HomeTeam', 'AwayTeam', 'Prediction', 'History %', 'Hometeam WpG', 'Hometeam DpG', 'Hometeam LpG', 'Awayteam WpG', 'Awayteam DpG', 'Awayteam LpG', 'tobet']].to_csv(filename, index=False)
 
     logger.log('info', f'{tier} file is available..', filename)
     return

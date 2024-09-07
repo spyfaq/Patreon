@@ -251,7 +251,7 @@ def lstm_plot(df):
         text=bets_accuracy['Prediction_Accuracy'], textposition='inside', texttemplate='%{text:.0s}', marker_color='#3CB371',
         name='Tier 3'))
     
-    fig.update_layout(title='Accuracy per Prediction Category', showlegend=False)
+    fig.update_layout(title='Tier3 Accuracy per Prediction Category', showlegend=False)
     fig.update_xaxes(title_text='Prediction')
     fig.update_yaxes(title_text='Accuracy %')
     fig.write_image(PUBLISHPATH+f"tier3_evaluation_{datesave}.png")

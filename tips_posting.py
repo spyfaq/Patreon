@@ -14,7 +14,7 @@ LOGNAME = '{date}_tipspost_logs'
 PUBLISHPATH = 'publish/'
 
 def _inita():
-    global USERMAIL, USERPASS, TIER1TITLE, TIER1TEXT, TIER2TITLE, TIER2TEXT
+    global USERMAIL, USERPASS, TIER1TITLE, TIER1TEXT, TIER2TITLE, TIER2TEXT, TIER3TITLE, TIER3TEXT
     with open('init.cfg', 'r', encoding='utf-8') as FIL:
         data = FIL.readlines()
         FIL.close()
@@ -24,12 +24,13 @@ def _inita():
 
     random_tier_1_post = random.choice(bettexts.tier_1_posts)
     random_tier_2_post = random.choice(bettexts.tier_2_posts)
-
+    random_tier_3_post = random.choice(bettexts.tier_3_posts)
     TIER1TITLE = random_tier_1_post['Title']
     TIER1TEXT = random_tier_1_post['Text']
     TIER2TITLE = random_tier_2_post['Title']
     TIER2TEXT = random_tier_2_post['Text']
-
+    TIER3TITLE = random_tier_3_post['Title']
+    TIER3TEXT = random_tier_3_post['Text']
     return
 
 def login_n_post(Titletext, Textdata, Tier):
@@ -54,6 +55,14 @@ def login_n_post(Titletext, Textdata, Tier):
     temp = driver.find_element(By.XPATH, "//button[. = 'Continue']")
     temp.click()
     logger.log('info', 'Logged in..')
+
+    # Cookies
+    driver.get('https://www.patreon.com/home')
+    closed_shadow_host = driver.find_element(By.ID, 'transcend-consent-manager')
+    shadow_root = driver.execute_script('return arguments[0].shadowRoot', closed_shadow_host)
+
+    reject = shadow_root.find_element(By.XPATH, "//button[.//span[text()='Reject non-essential']]")
+    reject.click()
 
     # open selection menu
     temp = driver.find_element(By.XPATH, "//button[@aria-label='Account menu']")
@@ -104,9 +113,10 @@ def login_n_post(Titletext, Textdata, Tier):
     # File
     if Tier == 1:
         filename = f'Tier1_{datesave}.csv'
-    else:
+    elif Tier == 2:
         filename = f'Tier2_{datesave}.csv'
-
+    elif Tier == 3:
+        filename = f'Tier1_lstm_{datesave}.csv'
 
     upload_button = driver.find_element(By.XPATH, "//button[@data-tag='file-upload-button']")
     upload_button.click()
@@ -134,7 +144,8 @@ def login_n_post(Titletext, Textdata, Tier):
 
     # Tier 1
     tier1box = driver.find_element(By.XPATH, "//input[@aria-label='Tier 1: Over/Under Predictions']")
-    tier2box = driver.find_element(By.XPATH, "//input[@aria-label='Tier 2: All-Inclusive Access']")
+    tier2box = driver.find_element(By.XPATH, "//input[@aria-label='Tier 2: Final Result Predictions']")
+    tier3box = driver.find_element(By.XPATH, "//input[@aria-label='Tier 3: BetProphet.AI Precision Picks']")
 
     if Tier == 1:
         if tier1box.is_selected():
@@ -144,7 +155,7 @@ def login_n_post(Titletext, Textdata, Tier):
             driver.execute_script("arguments[0].click();", tier1box)
             logger.log('info', f'Tier1 selected for Tier{Tier}..')
 
-    else:
+    elif Tier == 2:
         if tier1box.is_selected():
             driver.execute_script("arguments[0].click();", tier1box)
             logger.log('info', f'Tier1 de-selected for Tier{Tier}..')
@@ -155,6 +166,21 @@ def login_n_post(Titletext, Textdata, Tier):
         else:
             driver.execute_script("arguments[0].click();", tier2box)
             logger.log('info', f'Tier2 selected for Tier{Tier}..')
+    
+    elif Tier == 3:
+         if tier1box.is_selected():
+            driver.execute_script("arguments[0].click();", tier1box)
+            logger.log('info', f'Tier1 de-selected for Tier{Tier}..')       
+         if tier2box.is_selected():
+            driver.execute_script("arguments[0].click();", tier2box)
+            logger.log('info', f'Tier2 de-selected for Tier{Tier}..')      
+        
+         if tier3box.is_selected():
+            pass
+            logger.log('info', f'Tier3 selected for Tier{Tier}..')
+         else:
+            driver.execute_script("arguments[0].click();", tier3box)
+            logger.log('info', f'Tier3 selected for Tier{Tier}..')
 
 
     # Publish
@@ -171,8 +197,9 @@ def login_n_post(Titletext, Textdata, Tier):
 
 
 def main():
-    login_n_post(TIER1TITLE, TIER1TEXT, 1)
-    login_n_post(TIER2TITLE, TIER2TEXT, 2)
+    #login_n_post(TIER1TITLE, TIER1TEXT, 1)
+    #login_n_post(TIER2TITLE, TIER2TEXT, 2)
+    login_n_post(TIER3TITLE, TIER3TEXT, 3)
     logger.log('info', f'Process completed..')
     return
 
@@ -182,8 +209,8 @@ if __name__ == '__main__':
     datesave = datetime.date.today().strftime('%Y%m%d')
     LOGNAME = LOGNAME.replace('{date}', datesave) + '.json'
     logger = JSONLogger(log_file=LOGNAME, log_dir=LOGPATH)
-
+    main()
     try:
-        main()
+       pass
     except Exception as e:
         logger.log('critical', "Exception occured whie running", info=str(e))

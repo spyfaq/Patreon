@@ -83,7 +83,7 @@ def fetchaccuracy(date, results):
    logger.log('info', 'Latest published predictions loaded..')
    tier1_df = pd.read_csv(PUBLISHPATH + f'Tier1_{date}')
    tier2_df = pd.read_csv(PUBLISHPATH + f'Tier2_{date}')
-   tier3_df = pd.read_csv(PUBLISHPATH + f'Tier1_lstm_{date}')
+   #tier3_df = pd.read_csv(PUBLISHPATH + f'Tier1_lstm_{date}')
    
    logger.log('info', 'Checking accuracy predictions..')
    def check_accuracy(row):
@@ -132,19 +132,24 @@ def fetchaccuracy(date, results):
    if check > tier2.shape[0]*0.5:
        logger.log('warning', 'Possible missing results for Tier2..', info=f'Data count{tier2.shape[0]}, NaN count{check}') 
        raise  
-
-   tier3 = pd.merge(tier3_df, results, on=['HomeTeam', 'AwayTeam', 'Date'], how='left')
-   tier3.drop(['Div'], axis=1, inplace=True)
-   tier3['Prediction_Accuracy'] = tier3.apply(check_accuracy, axis=1)
-   check = tier3['Prediction_Accuracy'].isnull().sum()
-   if check > tier3.shape[0]*0.5:
-       logger.log('warning', 'Possible missing results for Tier2..', info=f'Data count{tier3.shape[0]}, NaN count{check}') 
-       raise  
+   """    
+   try: 
+    tier3_df = pd.read_csv(PUBLISHPATH + f'Tier1_lstm_{date}')
+    tier3 = pd.merge(tier3_df, results, on=['HomeTeam', 'AwayTeam', 'Date'], how='left')
+    tier3.drop(['Div'], axis=1, inplace=True)
+    tier3['Prediction_Accuracy'] = tier3.apply(check_accuracy, axis=1)
+    check = tier3['Prediction_Accuracy'].isnull().sum()
+    if check > tier3.shape[0]*0.5:
+        logger.log('warning', 'Possible missing results for Tier3..', info=f'Data count{tier3.shape[0]}, NaN count{check}') 
+        raise  
+    tier3.to_csv(PUBLISHPATH + f'Tier1_lstm_updated_{date}', index=False)
+   except:
+       logger.log('error', 'Errors in Tier3..') 
+    """
    
    tier1.to_csv(PUBLISHPATH + f'Tier1_updated_{date}', index=False)
    tier2.to_csv(PUBLISHPATH + f'Tier2_updated_{date}', index=False)
-   tier3.to_csv(PUBLISHPATH + f'Tier1_lstm_updated_{date}', index=False)
-   return tier1, tier2, tier3
+   return tier1, tier2 #, tier3
 
 def niceplots(tier1, tier2):
     logger.log('info', 'Creating plots per Tier..')
@@ -187,8 +192,8 @@ def niceplots(tier1, tier2):
         name='Tier 2'), row=1, col=2)
     
     fig.update_layout(title='Accuracy per Prediction Category', showlegend=False)
-    fig.update_xaxes(title_text='Prediction', row=1, col=1)
-    fig.update_xaxes(title_text='Prediction', row=1, col=2)
+    fig.update_xaxes(row=1, col=1, tickmode='linear')
+    fig.update_xaxes(row=1, col=2, tickmode='linear')
     fig.update_yaxes(title_text='Accuracy %', row=1, col=1)
     fig.write_image(PUBLISHPATH+f"predictions_accuracy_plot_{datesave}.png")
 
@@ -210,8 +215,8 @@ def niceplots(tier1, tier2):
         name='Tier 2'), row=1, col=2)
     
     fig.update_layout(title='Accuracy per League', showlegend=False)
-    fig.update_xaxes(title_text='League', row=1, col=1)
-    fig.update_xaxes(title_text='League', row=1, col=2)
+    fig.update_xaxes(row=1, col=1, tickmode='linear')
+    fig.update_xaxes(row=1, col=2, tickmode='linear')
     fig.update_yaxes(title_text='Accuracy %', row=1, col=1)
     fig.write_image(PUBLISHPATH+f"division_accuracy_plot_{datesave}.png")
 
@@ -233,8 +238,8 @@ def niceplots(tier1, tier2):
         name='Tier 2'), row=1, col=2)
     
     fig.update_layout(title='Accuracy per Day', showlegend=False)
-    fig.update_xaxes(title_text='Day', row=1, col=1)
-    fig.update_xaxes(title_text='Day', row=1, col=2)
+    fig.update_xaxes(row=1, col=1, tickmode='linear')
+    fig.update_xaxes(row=1, col=2, tickmode='linear')
     fig.update_yaxes(title_text='Accuracy %', row=1, col=1)
     fig.write_image(PUBLISHPATH+f"date_accuracy_plot_{datesave}.png")
 
@@ -261,9 +266,9 @@ def main():
     results_major = download_league_data()
     results_minor = download_league_data_()   
     results = pd.concat([results_major, results_minor])
-    t1df, t2df, t3df = fetchaccuracy(filename, results)
+    t1df, t2df = fetchaccuracy(filename, results)
     niceplots(t1df, t2df)
-    lstm_plot(t3df)
+    #lstm_plot(t3df)
     logger.log('info', f'Process completed.. Files are available..', PUBLISHPATH)
     return
 

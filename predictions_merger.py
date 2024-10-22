@@ -53,7 +53,7 @@ def accumulate_data(majorfile, minorfile):
         minor_end_date = str_to_date(minor_dates[1])
 
         # Check if dates are within 1 day
-        if abs((major_start_date - minor_start_date).days) <= 1 and abs((major_end_date - minor_end_date).days) <= 1:
+        if abs((major_start_date - minor_start_date).days) <= 2 and abs((major_end_date - minor_end_date).days) <= 2:
             major_df = pd.read_csv(majorfile)
             minor_df = pd.read_csv(minorfile)
         

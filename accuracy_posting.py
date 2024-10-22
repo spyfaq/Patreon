@@ -51,31 +51,31 @@ def login_n_post(Titletext, Textdata, Tier):
     temp = driver.find_element(By.XPATH, "//button[. = 'Continue']")
     temp.click()
     logger.log('info', 'Logged in..')
+    time.sleep(5)
+    cookies = driver.get_cookies()
 
-    # open selection menu
-    temp = driver.find_element(By.XPATH, "//button[@aria-label='Account menu']")
-    temp.click()
-
-    # move to creator page
-    temp = driver.find_element(By.XPATH, "//a[@href='/user']")
-    temp.click()
+    for cookie in cookies:
+        driver.add_cookie(cookie)
+    driver.get('https://www.patreon.com/user')
+    logger.log('info', 'Creator page loaded..')
 
     # close pop up
     try:
         temp = driver.find_element(By.XPATH, "//button[@aria-label='Close Dialog']")
+        logger.log('info', 'Dialog closed..')
         temp.click()
     except:
         pass
-    logger.log('info', 'Creator page loaded..')
 
     try:
         temp = driver.find_element(By.XPATH, "//button[@aria-label='Close']")
+        logger.log('info', 'Dialog2 closed..')
         temp.click()
     except:
         pass
 
-    # Create
-    temp = driver.find_element(By.XPATH, "/html/body/div/div/div[2]/div/div/nav/div[2]/div/div[2]/div[2]/div/button")
+    # Create - aria-label="Create post" or 
+    temp = driver.find_element(By.XPATH, '//button[@aria-label="Create post"]')
     temp.click()
 
     # Type Text
@@ -91,7 +91,7 @@ def login_n_post(Titletext, Textdata, Tier):
     act.key_down(Keys.CONTROL).send_keys("v").key_up(Keys.CONTROL).perform()
 
     # Text
-    text = driver.find_element(By.XPATH, "/html/body/div/div/div[4]/div/main/div[1]/div/div/div/div/div/div[2]/div/div[3]/div/p")
+    text = driver.find_element(By.XPATH, '//div[@contenteditable="true" and contains(@class, "ProseMirror remirror-editor")]')
     text.click()
     pyperclip.copy(Textdata)
     act = ActionChains(driver)
@@ -104,11 +104,11 @@ def login_n_post(Titletext, Textdata, Tier):
     preds_acc = f'"predictions_accuracy_plot_{datesave}.png"'
     divs_acc = f'"division_accuracy_plot_{datesave}.png"'
 
-    upload_button = driver.find_element(By.XPATH, "/html/body/div/div/div[4]/div/main/div[1]/div/div/div/div/div/div[1]/div/div/div/div[1]/button")
+    upload_button = driver.find_element(By.XPATH, "//button[@data-tag='file-upload-button']")
     upload_button.click()
     time.sleep(2)
     pyautogui.hotkey("alt", "d")
-    pyautogui.typewrite(PUBLISHPATH)
+    pyautogui.typewrite(ROOTPATH + '/' + PUBLISHPATH)
     pyautogui.press('enter')
     time.sleep(2)
     pyautogui.hotkey("alt", "n")
@@ -151,12 +151,14 @@ def main():
 
 if __name__ == '__main__':
     os.chdir(os.path.dirname(__file__))
+    ROOTPATH = os.path.dirname(__file__)
     _inita()
     datesave = datetime.date.today().strftime('%Y%m%d')
     LOGNAME = LOGNAME.replace('{date}', datesave) + '.json'
     logger = JSONLogger(log_file=LOGNAME, log_dir=LOGPATH)
 
     try:
-        main()
+        #main()
+        logger.log('warning', "We do not post accuracy any more")
     except Exception as e:
         logger.log('critical', "Exception occured whie running", info=str(e))

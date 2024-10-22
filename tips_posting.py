@@ -55,39 +55,35 @@ def login_n_post(Titletext, Textdata, Tier):
     temp = driver.find_element(By.XPATH, "//button[. = 'Continue']")
     temp.click()
     logger.log('info', 'Logged in..')
+    time.sleep(5)
+    cookies = driver.get_cookies()
 
-    # Cookies
-    driver.get('https://www.patreon.com/home')
-    closed_shadow_host = driver.find_element(By.ID, 'transcend-consent-manager')
-    shadow_root = driver.execute_script('return arguments[0].shadowRoot', closed_shadow_host)
-
-    reject = shadow_root.find_element(By.XPATH, "//button[.//span[text()='Reject non-essential']]")
-    reject.click()
-
-    # open selection menu
-    temp = driver.find_element(By.XPATH, "//button[@aria-label='Account menu']")
-    temp.click()
-
-    # move to creator page
-    temp = driver.find_element(By.XPATH, "//a[@href='/user']")
-    temp.click()
+    for cookie in cookies:
+        driver.add_cookie(cookie)
+    driver.get('https://www.patreon.com/user')
+    logger.log('info', 'Creator page loaded..')
 
     # close pop up
     try:
         temp = driver.find_element(By.XPATH, "//button[@aria-label='Close Dialog']")
+        logger.log('info', 'Dialog closed..')
         temp.click()
     except:
         pass
-    logger.log('info', 'Creator page loaded..')
 
     try:
         temp = driver.find_element(By.XPATH, "//button[@aria-label='Close']")
+        logger.log('info', 'Dialog2 closed..')
         temp.click()
     except:
         pass
 
-    # Create
-    temp = driver.find_element(By.XPATH, "/html/body/div/div/div[2]/div/div/nav/div[2]/div/div[2]/div[2]/div/button")
+    # Create - aria-label="Create post" or 
+    temp = driver.find_element(By.XPATH, '//button[@aria-label="Create post"]')
+    temp.click()
+
+    # Create Post
+    temp = driver.find_element(By.XPATH, '/html/body/div[2]/div/div[2]/div/div/div/div/div/ul/li[1]/a/div/p')
     temp.click()
 
     # Text
@@ -103,7 +99,7 @@ def login_n_post(Titletext, Textdata, Tier):
     act.key_down(Keys.CONTROL).send_keys("v").key_up(Keys.CONTROL).perform()
 
     # Text
-    text = driver.find_element(By.XPATH, '/html/body/div/div/div[4]/div/main/div[1]/div/div/div/div/div/div[1]/div/div[3]/div')
+    text = driver.find_element(By.XPATH, '//div[@contenteditable="true" and contains(@class, "ProseMirror remirror-editor")]')
     text.click()
     pyperclip.copy(Textdata)
     act = ActionChains(driver)
@@ -122,7 +118,7 @@ def login_n_post(Titletext, Textdata, Tier):
     upload_button.click()
     time.sleep(2)
     pyautogui.hotkey("alt", "d")
-    pyautogui.typewrite(PUBLISHPATH)
+    pyautogui.typewrite(ROOTPATH + '/' + PUBLISHPATH)
     pyautogui.press('enter')
     time.sleep(2)
     pyautogui.hotkey("alt", "n")
@@ -186,25 +182,22 @@ def login_n_post(Titletext, Textdata, Tier):
     # Publish
     temp = driver.find_element(By.XPATH, "//button//div[text()='Publish']")
     temp.click()  
-
-    # Close share pop up
-    temp = driver.find_element(By.XPATH, "//button[@aria-label='Close the share dialog']")
-    temp.click() 
-    
+   
     logger.log('info', f'Post published for Tier {Tier}..')
     sel.stop_server_and_driver(server, driver)
     return
 
 
 def main():
-    #login_n_post(TIER1TITLE, TIER1TEXT, 1)
-    #login_n_post(TIER2TITLE, TIER2TEXT, 2)
-    login_n_post(TIER3TITLE, TIER3TEXT, 3)
+    login_n_post(TIER1TITLE, TIER1TEXT, 1)
+    login_n_post(TIER2TITLE, TIER2TEXT, 2)
+    #login_n_post(TIER3TITLE, TIER3TEXT, 3)
     logger.log('info', f'Process completed..')
     return
 
 if __name__ == '__main__':
     os.chdir(os.path.dirname(__file__))
+    ROOTPATH = os.path.dirname(__file__)
     _inita()
     datesave = datetime.date.today().strftime('%Y%m%d')
     LOGNAME = LOGNAME.replace('{date}', datesave) + '.json'

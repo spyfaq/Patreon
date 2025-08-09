@@ -11,7 +11,7 @@ from jsonlogger_class import JSONLogger
 """
 Running year and leagues
 """
-YEAR = '2425'
+YEAR = '2526'
 
 LEAGUES = {'En PremierLeague': 'E0',
                'En Championship': 'E1',

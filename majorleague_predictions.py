@@ -42,10 +42,29 @@ LOGNAME = '{date}_my_prediction_major_logs'
 
 
 def calc_means(param_dict, homeTeam, awayTeam):
-    return [np.exp(param_dict['attack_' + homeTeam] + param_dict['defence_' + awayTeam] + param_dict['home_adv']),
-            np.exp(param_dict['defence_' + homeTeam] + param_dict['attack_' + awayTeam])]
+    """Calculate expected goals for home and away teams with safety checks.
+
+    Interface is identical to original: returns [lambda_home, lambda_away]
+    """
+    try:
+        lambda_home = np.exp(param_dict['attack_' + homeTeam] + param_dict['defence_' + awayTeam] + param_dict['home_adv'])
+        lambda_away = np.exp(param_dict['defence_' + homeTeam] + param_dict['attack_' + awayTeam])
+    except KeyError as e:
+        raise ValueError(f"Missing team parameter: {e}")
+
+    # Numerical safety: clamp to avoid extreme Poisson means that break simulation
+    # Allow wide range but prevent absurd values due to optimizer instability
+    lambda_home = float(np.clip(lambda_home, 1e-6, 20.0))
+    lambda_away = float(np.clip(lambda_away, 1e-6, 20.0))
+    return [lambda_home, lambda_away]
 
 def rho_correction(x, y, lambda_x, mu_y, rho):
+    """Dixon-Coles short-score correction (same formulas as original).
+
+    Kept exactly but robust to small numerical issues by clipping rho into (-1,1).
+    """
+    # ensure rho within sensible bounds
+    rho = float(np.clip(rho, -0.9999, 0.9999))
     if x == 0 and y == 0:
         return 1 - (lambda_x * mu_y * rho)
     elif x == 0 and y == 1:
@@ -58,84 +77,173 @@ def rho_correction(x, y, lambda_x, mu_y, rho):
         return 1.0
 
 def dixon_coles_simulate_match(params_dict, homeTeam, awayTeam, max_goals=5):
+    """Simulate matrix of score probabilities.
+
+    Changes (low-level, backward compatible):
+    - Uses calc_means (which includes clamping of lambda/mu) so simulation is stable.
+    - Extends goal range if needed to capture tail mass, but always returns a matrix where indices 0..5 are present.
+    - Normalizes matrix so probabilities sum to 1 after rho-correction.
+    """
     team_avgs = calc_means(params_dict, homeTeam, awayTeam)
-    team_pred = [[poisson.pmf(i, team_avg) for i in range(0, max_goals + 1)] for team_avg in team_avgs]
-    output_matrix = np.outer(np.array(team_pred[0]), np.array(team_pred[1]))
-    correction_matrix = np.array([[rho_correction(home_goals, away_goals, team_avgs[0],
-                                                  team_avgs[1], params_dict['rho']) for away_goals in range(2)]
-                                  for home_goals in range(2)])
-    output_matrix[:2, :2] = output_matrix[:2, :2] * correction_matrix
-    if np.sum(output_matrix) > 1:
-        logger.log('error', f"Data for {homeTeam} - {awayTeam} are not accurate. Probability > 1", info=str(np.sum(output_matrix)))
+
+    # ensure at least 5 for downstream compatibility
+    limit = max(max_goals, 5)
+
+    # extend if tail mass beyond 'limit' is non-negligible (but cap to avoid huge matrices)
+    tail_threshold = 1e-6
+    cap_limit = 12
+    while limit < cap_limit:
+        tails = [1 - poisson.cdf(limit, a) for a in team_avgs]
+        if max(tails) > tail_threshold:
+            limit += 1
+        else:
+            break
+
+    p_home = np.array([poisson.pmf(i, team_avgs[0]) for i in range(limit + 1)])
+    p_away = np.array([poisson.pmf(i, team_avgs[1]) for i in range(limit + 1)])
+
+    output_matrix = np.outer(p_home, p_away)
+
+    # apply Dixon-Coles correction on the top-left 2x2 block
+    for i in range(min(2, output_matrix.shape[0])):
+        for j in range(min(2, output_matrix.shape[1])):
+            corr = rho_correction(i, j, team_avgs[0], team_avgs[1], params_dict.get('rho', 0))
+            # guard against non-finite corrections
+            if not np.isfinite(corr):
+                corr = 1.0
+            output_matrix[i, j] *= corr
+
+    total = output_matrix.sum()
+    if total <= 0 or not np.isfinite(total):
+        try:
+            logger.log('error', f"Non-positive total probability for {homeTeam}-{awayTeam}", info=str(total))
+        except Exception:
+            pass
+        sz = output_matrix.shape[0]
+        return np.ones((sz, sz)) / (sz * sz)
+
+    output_matrix = output_matrix / total
     return output_matrix
 
-def solve_parameters_decay(dataset, xi=0, debug=False, init_vals=None, options={'disp': True, 'maxiter': 100},
-                           constraints=[{'type': 'eq', 'fun': lambda x: sum(x[:20]) - 20}], **kwargs):
+def _dc_log_like_single(params, data, teams, xi=0.0, reg=0.05, ident_pen=1e3):
+    """Negative log-likelihood for Dixon-Coles with exponential decay and L2 regularization.
 
+    Implementation notes:
+    - Adds a strong quadratic penalty on the sum of attack coefficients to enforce identifiability
+      without equality constraints that can mislead some optimizers.
+    - Returns a large penalty if impossible pmf/corr or if lam/mu become numerically extreme.
+    """
+    n = len(teams)
+    attack = params[:n]
+    defence = params[n:2*n]
+    rho = params[-2]
+    gamma = params[-1]
+
+    atk = dict(zip(teams, attack))
+    dfs = dict(zip(teams, defence))
+
+    ll = 0.0
+    for row in data.itertuples(index=False):
+        # compute raw lambda/mu (no clipping here) to keep gradients meaningful
+        lambda_raw = np.exp(atk[row.HomeTeam] + dfs[row.AwayTeam] + gamma)
+        mu_raw = np.exp(atk[row.AwayTeam] + dfs[row.HomeTeam])
+        # if raw means are absurd, return big penalty so optimiser avoids these regions
+        if not np.isfinite(lambda_raw) or not np.isfinite(mu_raw) or lambda_raw > 100 or mu_raw > 100:
+            return 1e9
+        corr = rho_correction(row.HomeGoals, row.AwayGoals, lambda_raw, mu_raw, rho)
+        pmf_x = poisson.pmf(row.HomeGoals, lambda_raw)
+        pmf_y = poisson.pmf(row.AwayGoals, mu_raw)
+        if pmf_x <= 0 or pmf_y <= 0 or corr <= 0:
+            return 1e9
+        contrib = np.log(corr) + np.log(pmf_x) + np.log(pmf_y)
+        weight = np.exp(-xi * row.time_diff)
+        ll += weight * contrib
+
+    # L2 regularization on attack & defence to avoid overfitting
+    reg_pen = reg * (np.sum(attack ** 2) + np.sum(defence ** 2))
+    # identifiability penalty: encourage mean(attack) ~ 0
+    ident_penalty = ident_pen * (np.sum(attack) ** 2)
+
+    return -ll + reg_pen + ident_penalty
+
+def solve_parameters_decay(dataset, xi=0.0, debug=False, init_vals=None, options={'disp': False, 'maxiter': 200},
+                           constraints=None, reg=0.05, restarts=3, bounds_scale=3.0, **kwargs):
+    """Estimate Dixon-Coles parameters with L2 regularization, bounds and multiple restarts.
+
+    This function preserves the original return format (a dict mapping names to values). It
+    replaces the equality constraint approach by bounded optimization + identifiability penalty
+    for more robust fits.
+    """
     teams = np.sort(dataset['HomeTeam'].unique())
-    # check for no weirdness in dataset
     away_teams = np.sort(dataset['AwayTeam'].unique())
     if not np.array_equal(teams, away_teams):
         raise ValueError("something not right")
     n_teams = len(teams)
-    if init_vals is None:
-        # random initialisation of model parameters
-        init_vals = np.concatenate((np.random.uniform(0, 1, (n_teams)),  # attack strength
-                                    np.random.uniform(0, -1, (n_teams)),  # defence strength
-                                    np.array([0, 1.0])  # rho (score correction), gamma (home advantage)
-                                    ))
 
-    def dc_log_like_decay(x, y, alpha_x, beta_x, alpha_y, beta_y, rho, gamma, t, xi=xi):
-        lambda_x, mu_y = np.exp(alpha_x + beta_y + gamma), np.exp(alpha_y + beta_x)
-        value = np.exp(-xi * t) * (np.log(rho_correction(x, y, lambda_x, mu_y, rho)) +
-                                  np.log(poisson.pmf(x, lambda_x)) + np.log(poisson.pmf(y, mu_y)))
-        return value
+    # bounds: keep attack/defence in [-bounds_scale, bounds_scale], rho in (-0.999,0.999), home_adv reasonable
+    b_att = [(-bounds_scale, bounds_scale)] * n_teams
+    b_def = [(-bounds_scale, bounds_scale)] * n_teams
+    b_rho = [(-0.9999, 0.9999), (-2.5, 2.5)]
+    bounds = b_att + b_def + b_rho
 
-    def estimate_paramters(params):
-        score_coefs = dict(zip(teams, params[:n_teams]))
-        defend_coefs = dict(zip(teams, params[n_teams:(2 * n_teams)]))
-        rho, gamma = params[-2:]
-        log_like = [
-            dc_log_like_decay(row.HomeGoals, row.AwayGoals, score_coefs[row.HomeTeam], defend_coefs[row.HomeTeam],
-                              score_coefs[row.AwayTeam], defend_coefs[row.AwayTeam],
-                              rho, gamma, row.time_diff, xi=xi) for row in dataset.itertuples()]
-        return -sum(log_like)
+    def make_init():
+        return np.concatenate((np.random.normal(0, 0.2, n_teams),
+                               np.random.normal(0, 0.2, n_teams),
+                               np.array([0.0, 0.1])
+                               ))
 
-    sys.stdout = open(os.devnull, 'w')
-    opt_output = minimize(estimate_paramters, init_vals, options=options, constraints=constraints)
-    sys.stdout = sys.__stdout__
-    if debug:
-        # sort of hacky way to investigate the output of the optimisation process
-        return opt_output
-    else:
-        return dict(zip(["attack_" + team for team in teams] +
-                        ["defence_" + team for team in teams] +
-                        ['rho', 'home_adv'],
-                        opt_output.x))
+    best = None
+    best_val = np.inf
+    best_x = None
 
-def resultdef(result, ht, at, divis, mdata, mtime, standings, THRESH = 0.3):
-    under3_5 = result[0][0] + result[0][1] + result[0][2] + result[1][2] + result[0][3] + result[1][0] + result[1][1] + \
-               result[2][0] + result[2][1] + result[3][0]
-    under2_5 = result[0][0] + result[0][1] + result[0][2] + result[1][0] + result[1][1] + result[2][0]
-    under1_5 = result[0][0] + result[0][1] + result[1][0]
-    over3_5 = 1 - under3_5
-    over2_5 = 1 - under2_5
-    over1_5 = 1 - under1_5
+    for r in range(max(1, restarts)):
+        if init_vals is not None and r == 0:
+            init = init_vals
+        else:
+            init = make_init()
+        try:
+            # try L-BFGS-B with bounds (robust and fast)
+            res = minimize(lambda x: _dc_log_like_single(x, dataset, list(teams), xi=xi, reg=reg), init,
+                           method='L-BFGS-B', bounds=bounds, options={'maxiter': options.get('maxiter', 200)})
+            # fallback to SLSQP without bounds if needed
+            if (not res.success) and constraints is not None:
+                res = minimize(lambda x: _dc_log_like_single(x, dataset, list(teams), xi=xi, reg=reg), init,
+                               method='SLSQP', bounds=bounds, constraints=constraints, options=options)
+
+            if res.success and res.fun < best_val:
+                best_val = res.fun
+                best = res
+                best_x = res.x
+        except Exception:
+            continue
+
+    if best is None:
+        raise RuntimeError('Optimization failed for all restarts')
+
+    x = best_x
+    param_names = ["attack_" + team for team in teams] + ["defence_" + team for team in teams] + ['rho', 'home_adv']
+    return dict(zip(param_names, x))
+
+def resultdef(result, ht, at, divis, mdata, mtime, standings, THRESH = 0.4):
+    max_g = result.shape[0] - 1
+    max_g_away = result.shape[1] - 1
+    
+    over1_5 = np.sum(result[i, j] for i in range(max_g + 1) for j in range(max_g_away + 1) if i + j > 1)
+    over2_5 = np.sum(result[i, j] for i in range(max_g + 1) for j in range(max_g_away + 1) if i + j > 2)
+    over3_5 = np.sum(result[i, j] for i in range(max_g + 1) for j in range(max_g_away + 1) if i + j > 3)
 
     home = np.sum(np.tril(result, -1))
     away = np.sum(np.triu(result, 1))
     draw = np.sum(np.diag(result))
-    hO0_5 = result.sum(axis=1)[1] + result.sum(axis=1)[2] + result.sum(axis=1)[3] + result.sum(axis=1)[4] + result.sum(axis=1)[5] 
-    hO1_5 = result.sum(axis=1)[2] + result.sum(axis=1)[3] + result.sum(axis=1)[4] + result.sum(axis=1)[5] 
-    hO2_5 = result.sum(axis=1)[3] + result.sum(axis=1)[4] + result.sum(axis=1)[5]
 
-    aO0_5 = result.sum(axis=0)[1] + result.sum(axis=0)[2] + result.sum(axis=0)[3] + result.sum(axis=0)[4] + result.sum(axis=0)[5]
-    aO1_5 = result.sum(axis=0)[2] + result.sum(axis=0)[3] + result.sum(axis=0)[4] + result.sum(axis=0)[5]
-    aO2_5 = result.sum(axis=0)[3] + result.sum(axis=0)[4] + result.sum(axis=0)[5]
+    gg = np.sum(result[i, j] for i in range(1, max_g + 1) for j in range(1, max_g_away + 1))
 
-    temp = np.delete(result, 0, 1)
-    goalgoal = np.delete(temp, 0, 0)
-    gg = np.sum(goalgoal)
+    hO1_5 = np.sum(result[i, j] for i in range(2, max_g + 1) for j in range(max_g_away + 1))
+    hO2_5 = np.sum(result[i, j] for i in range(3, max_g + 1) for j in range(max_g_away + 1))
+
+    aO1_5 = np.sum(result[i, j] for i in range(max_g + 1) for j in range(2, max_g_away + 1))
+    aO2_5 = np.sum(result[i, j] for i in range(max_g + 1) for j in range(3, max_g_away + 1))
+
 
     dict = {'O1_5': over1_5,
             'O2_5': over2_5,
@@ -144,10 +252,8 @@ def resultdef(result, ht, at, divis, mdata, mtime, standings, THRESH = 0.3):
             '2':away,
             'X': draw,
             'GG': gg,
-            'hO0_5': hO0_5,
             'hO1_5': hO1_5,
             'hO2_5': hO2_5,
-            'aO0_5': aO0_5,
             'aO1_5': aO1_5,
             'aO2_5': aO2_5,
             }
@@ -220,7 +326,7 @@ def save_results_(df):
     towrite['Date'] = pd.to_datetime(towrite['Date'], dayfirst=True)
     towrite['Date'] = towrite['Date'].dt.strftime('%d-%m-%Y, %A')
     towrite['Date_temp'] = pd.to_datetime(towrite['Date'], dayfirst=True)
-    towrite['Time_temp'] = pd.to_datetime(towrite['Time']).dt.time
+    towrite['Time_temp'] = pd.to_datetime(towrite['Time'], format="%H:%M").dt.time
     towrite['Datetime_temp'] = towrite.apply(lambda x: pd.Timestamp.combine(x['Date_temp'], x['Time_temp']), axis=1)
     towrite.sort_values(by=['Datetime_temp', 'HomeTeam'], inplace=True)
     towrite.drop(columns=['Date_temp', 'Time_temp', 'Datetime_temp'],inplace=True)
@@ -475,7 +581,7 @@ if __name__ == '__main__':
     if os.path.exists(LOGPATH + '/' +LOGNAME):
         logger = JSONLogger(log_file=LOGNAME, log_dir=LOGPATH)
         logger.log('critical', "Tried to rerun! Forced exit app!")
-        exit()
+        #exit()
     else:
         logger = JSONLogger(log_file=LOGNAME, log_dir=LOGPATH)
 
@@ -485,11 +591,11 @@ if __name__ == '__main__':
     fromdate = min(next_match['Date']).strftime('%d%m%Y')
     todate = max(next_match['Date']).strftime('%d%m%Y')
     DATANAME = DATANAME.replace('{date1}', fromdate).replace('{date2}', todate) + '.csv'
-    if os.path.exists(DATAPATH + '/' +DATANAME):
+    """    if os.path.exists(DATAPATH + '/' +DATANAME):
         logger = JSONLogger(log_file=LOGNAME, log_dir=LOGPATH)
         logger.log('critical', "Data exists already! Forced exit app!")
         exit()
-    
+"""    
     if next_match['Date'].max() <= pd.Timestamp(datetime.date.today() - datetime.timedelta(days=2)):
         logger.log('info', "Nothing new.. Bye")
         sys.exit()

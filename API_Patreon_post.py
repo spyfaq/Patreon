@@ -1,10 +1,13 @@
 import requests
-import os
+import markdown
 
 # ====== CONFIG ======
-PATREON_ACCESS_TOKEN = os.getenv("PATREON_ACCESS_TOKEN")  # Store token as env variable for safety
-PATREON_CAMPAIGN_ID = "YOUR_CAMPAIGN_ID"  # You can get this from Patreon API
+PATREON_ACCESS_TOKEN = "rKBIoqnNOyzDVKFqDmNcXBiDpF6Yn7U0RkynJWFEWPw"  # Store token as env variable for safety
+PATREON_CAMPAIGN_ID = "9291193"  # You can get this from Patreon API
 # ====================
+
+html_content = markdown.markdown("# Hello Patreon!")
+
 
 def post_to_patreon(title, content_text, tier_ids=None, image_path=None, file_path=None):
     """
@@ -17,34 +20,29 @@ def post_to_patreon(title, content_text, tier_ids=None, image_path=None, file_pa
     """
     
     url = "https://www.patreon.com/api/oauth2/v2/posts"
-    headers = {
-        "Authorization": f"Bearer {PATREON_ACCESS_TOKEN}",
-        "Content-Type": "application/json"
-    }
+    headers = {"Authorization": f"Bearer {PATREON_ACCESS_TOKEN}"}
 
-    # Patreon supports HTML formatting for body
-    body_data = {
-        "data": {
-            "type": "post",
-            "attributes": {
-                "title": title,
-                "content": content_text,
-                "is_draft": False,
-                "tiers": tier_ids if tier_ids else []
-            },
-            "relationships": {
-                "campaign": {
-                    "data": {
-                        "type": "campaign",
-                        "id": PATREON_CAMPAIGN_ID
-                    }
+    payload = {
+    "data": {
+        "type": "post",
+        "attributes": {
+            "title": "Daily Post",
+            "content": html_content,
+            "published": True
+        },
+        "relationships": {
+            "campaign": {
+                "data": {
+                    "type": "campaign",
+                    "id": PATREON_CAMPAIGN_ID
                 }
             }
         }
     }
+}
 
     # Step 1: Create the post
-    response = requests.post(url, headers=headers, json=body_data)
+    response = requests.post(url, json=payload, headers=headers)
     if response.status_code != 201:
         print("❌ Error creating post:", response.text)
         return None

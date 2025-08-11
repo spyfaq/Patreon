@@ -154,9 +154,9 @@ def main():
         
         df_date = df_date.drop(columns=["PredValue", "HistValue", "ConfScore"])
 
-        # Tier 1: Top 5 picks (Division, Match, Prediction)
-        logger.log('info', f'Creating Public: 5 daily picks..')
-        public = top_picks[["Division", "Match", "Prediction"]].head(5)
+        # Tier 1: Top 3 picks (Division, Match, Prediction)
+        logger.log('info', f'Creating Public: 3 daily picks..')
+        public = top_picks[["Division", "Match", "Prediction"]].head(5).sample(n=3, random_state=1)
         # Telegram-friendly public list
         public_tg = f"📊 <b>Basic Picks — {date_str}</b>\n\n"
         for _, row in public.iterrows():
@@ -166,7 +166,7 @@ def main():
         public_tg += "\n📩 <a href='https://t.me/vipbetprophetAI_bot'>Join BetProphet.AI VIP now</a> for today’s premium picks before kick-off!"
 
         # Save Telegram text
-        with open(f"{PUBLISHPATH}/Public_{date_str}_TG.txt", "w", encoding="utf-8") as f:
+        with open(f"{PUBLISHPATH}/Public_{date_str}.txt", "w", encoding="utf-8") as f:
             f.write(public_tg)
 
         logger.log('info', f'Creating VIP: Top 10 picks + reasoning + csv..')
@@ -183,7 +183,7 @@ def main():
             vip_tg += f"  <i>{row['Reasoning']}</i>\n"
 
         # Telegram text, and CSV
-        with open(f"{PUBLISHPATH}/VIP_{date_str}_TG.txt", "w", encoding="utf-8") as f:
+        with open(f"{PUBLISHPATH}/VIP_{date_str}.txt", "w", encoding="utf-8") as f:
             f.write(vip_tg)
         csv_filename = f"{PUBLISHPATH}/VIP_{date_str}.csv"
         df_date.to_csv(csv_filename, index=False)

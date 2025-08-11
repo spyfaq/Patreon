@@ -163,7 +163,7 @@ def main():
             public_tg += f"• <b>{row['Match']}</b> → {row['Prediction']}\n"
 
         # Add VIP join message
-        public_tg += "\n📩 <a href='https://t.me/vipbetprophetAI_bot'>Join BetProphet.AI VIP now</a> for today’s premium picks before kick-off!"
+        public_tg += "\n📩 <a href='https://t.me/vipbetprophetAI_bot?start=vip'>Join BetProphet.AI VIP now</a> for today’s premium picks before kick-off!"
 
         # Save Telegram text
         with open(f"{PUBLISHPATH}/Public_{date_str}.txt", "w", encoding="utf-8") as f:

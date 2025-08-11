@@ -1,0 +1,30 @@
+name: Daily Telegram Post from Dropbox
+
+on:
+  schedule:
+    - cron: "0 10 * * *"  # 10:00 UTC daily
+  workflow_dispatch:
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.10"
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Run posting script
+        env:
+          DROPBOX_ACCESS_TOKEN: ${{ secrets.DROPBOX_ACCESS_TOKEN }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID_TIER1: ${{ secrets.TELEGRAM_CHAT_ID_TIER1 }}
+          TELEGRAM_CHAT_ID_TIER2: ${{ secrets.TELEGRAM_CHAT_ID_TIER2 }}
+          TELEGRAM_CHAT_ID_TIER3: ${{ secrets.TELEGRAM_CHAT_ID_TIER3 }}
+        run: python post_from_dropbox.py

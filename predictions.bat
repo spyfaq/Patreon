@@ -11,6 +11,6 @@ echo Merging Simulations..
 "D:\Python Apps\Patreon\.venv\Scripts\python.exe" "D:\Python Apps\Patreon\predictions_merger.py"
 
 echo Creating tier's daily files..
-"D:\Python Apps\Patreon\.venv\Scripts\python.exe" "D:\Python Apps\Patreon\Patreon_tier_.py"
+"D:\Python Apps\Patreon\.venv\Scripts\python.exe" "D:\Python Apps\Patreon\predictions_tier.py"
 
 echo Files are ready..

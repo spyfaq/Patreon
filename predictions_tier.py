@@ -3,7 +3,7 @@
 
 import numpy as np
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 import datetime, os
 from jsonlogger_class import JSONLogger
 
@@ -117,8 +117,16 @@ def main():
     df_full["Prediction %"] = df_full["Prediction %"].apply(lambda x: f"{x*100:.2f}%")
     df_full["Match"] = df_full["HomeTeam"] + " vs " + df_full["AwayTeam"]
 
+    # Assume df_full['Date'] is already a datetime.date and df_full['Time'] is datetime.time
+    df_full['Datetime_temp'] = pd.to_datetime(df_full['Date'].astype(str) + ' ' + df_full['Time'].astype(str), dayfirst=True)
+
+    # Shift early-morning matches (before 06:00) to previous day
+    df_full['AdjustedDate'] = df_full['Datetime_temp'].apply(
+        lambda dt: (dt - timedelta(days=1)).date() if dt.hour < 8 else dt.date()
+    )
+
     # Loop through each unique date
-    for match_date, df_date in df_full.groupby("Date"):
+    for match_date, df_date in df_full.groupby("AdjustedDate"):
         date_str = pd.to_datetime(match_date).strftime("%Y-%m-%d")
         logger.log('info', f'Processing date: {date_str}')
 
@@ -152,11 +160,12 @@ def main():
             top_picks = df_date.sort_values(by="PredValue", ascending=False).head(5)
             logger.log('warning', f"No matches met criteria for {date_str}, fallback to top 5 by Prediction %")
         
-        df_date = df_date.drop(columns=["PredValue", "HistValue", "ConfScore"])
+        df_date = df_date.drop(columns=["PredValue", "HistValue", "ConfScore", "Datetime_temp", "AdjustedDate"])
 
         # Tier 1: Top 3 picks (Division, Match, Prediction)
         logger.log('info', f'Creating Public: 3 daily picks..')
-        public = top_picks[["Division", "Match", "Prediction"]].head(5).sample(n=3, random_state=1)
+        n_samples = min(3, len(top_picks))
+        public = top_picks[["Division", "Match", "Prediction"]].head(5).sample(n=n_samples, random_state=1)
         # Telegram-friendly public list
         public_tg = f"📊 <b>Basic Picks — {date_str}</b>\n\n"
         for _, row in public.iterrows():

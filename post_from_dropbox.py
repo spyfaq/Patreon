@@ -34,15 +34,23 @@ def download_dropbox_file(path_lower):
 files = list_dropbox_files()
 
 for tier in CHAT_IDS.keys():
-    md_file = next((f for f in files if f["name"].startswith(tier) and f["name"].endswith(f"{today_str}.txt")), None)
-    csv_file = next((f for f in files if f["name"].startswith(tier) and f["name"].endswith(f"{today_str}.csv")), None)
+    # Find today's HTML text file
+    txt_file = next(
+        (f for f in files if f["name"].startswith(tier) and f["name"].endswith(f"{today_str}.txt")),
+        None
+    )
+    # Find today's CSV file
+    csv_file = next(
+        (f for f in files if f["name"].startswith(tier) and f["name"].endswith(f"{today_str}.csv")),
+        None
+    )
 
-    if md_file:
-        content = download_dropbox_file(md_file["path_lower"]).decode("utf-8")
+    if txt_file:
+        content = download_dropbox_file(txt_file["path_lower"]).decode("utf-8")
         send_text_url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-        text_payload = {"chat_id": CHAT_IDS[tier], "text": content, "parse_mode": "Markdown"}
+        text_payload = {"chat_id": CHAT_IDS[tier], "text": content, "parse_mode": "HTML", "disable_web_page_preview": True}
         requests.post(send_text_url, data=text_payload)
-        print(f"Posted {md_file['name']} to {tier}")
+        print(f"Posted {txt_file['name']} to {tier}")
 
     if csv_file:
         csv_data = download_dropbox_file(csv_file["path_lower"])

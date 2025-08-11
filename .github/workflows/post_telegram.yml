@@ -25,6 +25,5 @@ jobs:
           DROPBOX_ACCESS_TOKEN: ${{ secrets.DROPBOX_ACCESS_TOKEN }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID_TIER1: ${{ secrets.TELEGRAM_CHAT_ID_TIER1 }}
-          TELEGRAM_CHAT_ID_TIER2: ${{ secrets.TELEGRAM_CHAT_ID_TIER2 }}
           TELEGRAM_CHAT_ID_TIER3: ${{ secrets.TELEGRAM_CHAT_ID_TIER3 }}
         run: python post_from_dropbox.py

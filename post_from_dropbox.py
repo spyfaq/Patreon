@@ -5,8 +5,8 @@ import requests
 DROPBOX_TOKEN = os.environ["DROPBOX_ACCESS_TOKEN"]
 BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 CHAT_IDS = {
-    "tier1": os.environ["TELEGRAM_CHAT_ID_TIER1"],
-    "tier3": os.environ["TELEGRAM_CHAT_ID_TIER3"],
+    "Public": os.environ["TELEGRAM_CHAT_ID_TIER1"],
+    "VIP": os.environ["TELEGRAM_CHAT_ID_TIER3"],
 }
 
 # Dropbox folder path
@@ -34,7 +34,7 @@ def download_dropbox_file(path_lower):
 files = list_dropbox_files()
 
 for tier in CHAT_IDS.keys():
-    md_file = next((f for f in files if f["name"].startswith(tier) and f["name"].endswith(f"{today_str}.md")), None)
+    md_file = next((f for f in files if f["name"].startswith(tier) and f["name"].endswith(f"{today_str}.txt")), None)
     csv_file = next((f for f in files if f["name"].startswith(tier) and f["name"].endswith(f"{today_str}.csv")), None)
 
     if md_file:

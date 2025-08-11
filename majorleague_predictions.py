@@ -323,8 +323,19 @@ def save_results_(df):
     else:
         towrite = df
 
-    towrite['Date'] = pd.to_datetime(towrite['Date'], dayfirst=True)
-    towrite['Date'] = towrite['Date'].dt.strftime('%d-%m-%Y, %A')
+    # Combine Date and Time into a single datetime in UTC
+    dt_utc = pd.to_datetime(
+        towrite['Date'].astype(str) + ' ' + towrite['Time'].astype(str),
+        utc=True
+    )
+
+    # Convert from UTC to Greece time (Athens)
+    dt_gr = dt_utc.dt.tz_convert('Europe/Athens')
+
+    # Update your DataFrame
+    towrite['Date'] = dt_gr.dt.strftime('%d-%m-%Y') + ', ' + dt_gr.dt.day_name(locale='en_US')
+    towrite['Time'] = dt_gr.dt.strftime('%H:%M')  
+
     towrite['Date_temp'] = pd.to_datetime(towrite['Date'], dayfirst=True)
     towrite['Time_temp'] = pd.to_datetime(towrite['Time'], format="%H:%M").dt.time
     towrite['Datetime_temp'] = towrite.apply(lambda x: pd.Timestamp.combine(x['Date_temp'], x['Time_temp']), axis=1)
@@ -581,7 +592,7 @@ if __name__ == '__main__':
     if os.path.exists(LOGPATH + '/' +LOGNAME):
         logger = JSONLogger(log_file=LOGNAME, log_dir=LOGPATH)
         logger.log('critical', "Tried to rerun! Forced exit app!")
-        #exit()
+        exit()
     else:
         logger = JSONLogger(log_file=LOGNAME, log_dir=LOGPATH)
 
@@ -591,11 +602,11 @@ if __name__ == '__main__':
     fromdate = min(next_match['Date']).strftime('%d%m%Y')
     todate = max(next_match['Date']).strftime('%d%m%Y')
     DATANAME = DATANAME.replace('{date1}', fromdate).replace('{date2}', todate) + '.csv'
-    """    if os.path.exists(DATAPATH + '/' +DATANAME):
+    if os.path.exists(DATAPATH + '/' +DATANAME):
         logger = JSONLogger(log_file=LOGNAME, log_dir=LOGPATH)
         logger.log('critical', "Data exists already! Forced exit app!")
         exit()
-"""    
+    
     if next_match['Date'].max() <= pd.Timestamp(datetime.date.today() - datetime.timedelta(days=2)):
         logger.log('info', "Nothing new.. Bye")
         sys.exit()

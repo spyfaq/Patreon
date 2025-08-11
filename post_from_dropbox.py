@@ -6,7 +6,6 @@ DROPBOX_TOKEN = os.environ["DROPBOX_ACCESS_TOKEN"]
 BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 CHAT_IDS = {
     "tier1": os.environ["TELEGRAM_CHAT_ID_TIER1"],
-    "tier2": os.environ["TELEGRAM_CHAT_ID_TIER2"],
     "tier3": os.environ["TELEGRAM_CHAT_ID_TIER3"],
 }
 

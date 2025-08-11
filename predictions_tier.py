@@ -155,36 +155,41 @@ def main():
         df_date = df_date.drop(columns=["PredValue", "HistValue", "ConfScore"])
 
         # Tier 1: Top 5 picks (Division, Match, Prediction)
-        logger.log('info', f'Creating Tier 1: Full table styled..')
-        tier1 = top_picks[["Division", "Match", "Prediction"]].head(5)
-        tier1_md = f"### Supporter Tier Predictions — {date_str}\n\n" + tier1.to_markdown(index=False)
-        with open(f"{PUBLISHPATH}/tier1_supporter_{date_str}.md", "w", encoding="utf-8") as f:
-            f.write(tier1_md)
+        logger.log('info', f'Creating Public: 5 daily picks..')
+        public = top_picks[["Division", "Match", "Prediction"]].head(5)
+        # Telegram-friendly public list
+        public_tg = f"📊 <b>Basic Picks — {date_str}</b>\n\n"
+        for _, row in public.iterrows():
+            public_tg += f"• <b>{row['Match']}</b> → {row['Prediction']}\n"
 
-        logger.log('info', f'Creating Tier 2: Top 10 picks + reasoning..')
-        tier2 = top_picks[["Division", "Match", "Prediction", "Confidence", "Prediction %", "History %"]]
-        tier2_md_text = f"### Premium Tier Predictions — {date_str}\n\n" + tier2.to_markdown(index=False)
+        # Add VIP join message
+        public_tg += "\n📩 <a href='https://t.me/vipbetprophetAI_bot'>Join BetProphet.AI VIP now</a> for today’s premium picks before kick-off!"
 
-        top5 = top_picks.head(5)
-        tier2_md_text += "\n\n**Reasoning for Top 5 Predictions:**\n"
-        for _, row in top5.iterrows():
-            tier2_md_text += f"- **{row['Match']}** → {row['Prediction']} ({row['Prediction %']})\n"
-            tier2_md_text += f"  _Reasoning: {row['Reasoning']}_\n"
+        # Save Telegram text
+        with open(f"{PUBLISHPATH}/Public_{date_str}_TG.txt", "w", encoding="utf-8") as f:
+            f.write(public_tg)
 
-        with open(f"{PUBLISHPATH}/tier2_premium_{date_str}.md", "w", encoding="utf-8") as f:
-            f.write(tier2_md_text)
+        logger.log('info', f'Creating VIP: Top 10 picks + reasoning + csv..')
+        vip = top_picks[["Division", "Match", "Prediction", "Confidence", "Prediction %", "History %"]]
+        # Telegram-friendly VIP list
+        vip_tg = f"💎 <b>VIP Picks — {date_str}</b>\n\n"
+        for _, row in vip.iterrows():
+            vip_tg += f"{row['Confidence']} <b>{row['Match']}</b> → {row['Prediction']} ({row['Prediction %']} | {row['History %']})\n"
 
-        logger.log('info', f'Creating Tier 3: Full CSV + reasoning..')
-        tier3 = df_date[["Division", "Match", "Prediction", "Confidence", "Prediction %", "History %", "Reasoning"]]
-        tier3_md_text = f"### VIP Tier Predictions — {date_str}\n\n" + tier3.to_markdown(index=False)
+        # Add reasoning for top 5
+        vip_tg += "\n<b>Reasoning for Top 5:</b>\n"
+        for _, row in top_picks.head(5).iterrows():
+            vip_tg += f"• <b>{row['Match']}</b> → {row['Prediction']} ({row['Prediction %']})\n"
+            vip_tg += f"  <i>{row['Reasoning']}</i>\n"
 
-        csv_filename = f"{PUBLISHPATH}/tier3_vip_{date_str}.csv"
+        # Telegram text, and CSV
+        with open(f"{PUBLISHPATH}/VIP_{date_str}_TG.txt", "w", encoding="utf-8") as f:
+            f.write(vip_tg)
+        csv_filename = f"{PUBLISHPATH}/VIP_{date_str}.csv"
         df_date.to_csv(csv_filename, index=False)
 
-        with open(f"{PUBLISHPATH}/tier3_vip_{date_str}.md", "w", encoding="utf-8") as f:
-            f.write(tier3_md_text)
 
-    logger.log('info', f'Patreon content generated..')
+    logger.log('info', f'Telegram content generated..')
     return
 
 if __name__ == '__main__':

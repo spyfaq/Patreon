@@ -11,7 +11,7 @@ LOGPATH = 'logs/data/'
 LOGNAME = '{date}_tipsselection_logs'
 DATANAME = 'my_prediction_data_{date1}_{date2}'
 DATAPATH = 'predictions_data/'
-PUBLISHPATH = 'C:/Users/spyro/Dropbox/telegram_content/'
+PUBLISHPATH = 'publish/'
 
 
 today_str = datetime.datetime.today().strftime("%d-%m-%Y")

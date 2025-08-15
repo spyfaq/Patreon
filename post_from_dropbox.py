@@ -11,7 +11,7 @@ CHAT_IDS = {
 
 # Dropbox folder path
 DROPBOX_FOLDER = "/telegram_content"
-today_str = datetime.date.today().strftime("%Y-%d-%m")
+today_str = datetime.date.today().strftime("%Y-%m-%d")
 
 def list_dropbox_files():
     url = "https://api.dropboxapi.com/2/files/list_folder"

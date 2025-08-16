@@ -3,7 +3,7 @@
 
 import pandas as pd
 import numpy as np
-import  sys, os, datetime
+import  sys, os, datetime, requests
 from scipy.stats import poisson
 from scipy.optimize import minimize
 from jsonlogger_class import JSONLogger
@@ -31,6 +31,24 @@ LEAGUES = {'En PremierLeague': 'E0',
                'SC PremierLeague': 'SC0',
                'Tr Futbol Ligi 1': 'T1'
                }
+DIVISIONS = {
+    #"E0": "39",
+    #"E1": "40",
+    #"E2": "41",
+    #"SC0": "179",
+    #"D1": "78",
+    #"D2": "79",
+    #"I1": "135",
+    #"I2": "136",
+    #"SP1": "140",
+    #"SP2": "141",
+    #"F1": "61",
+    #"F2": "62",
+    "B1": "144",
+    #"N1": "88",
+    #"P1": "94"
+}
+
 
 """
 Path to save  data
@@ -224,7 +242,7 @@ def solve_parameters_decay(dataset, xi=0.0, debug=False, init_vals=None, options
     param_names = ["attack_" + team for team in teams] + ["defence_" + team for team in teams] + ['rho', 'home_adv']
     return dict(zip(param_names, x))
 
-def resultdef(result, ht, at, divis, mdata, mtime, standings, THRESH = 0.4):
+def resultdef(result, ht, at, divis, mdata, mtime, standings, lgdata, THRESH = 0.4):
     max_g = result.shape[0] - 1
     max_g_away = result.shape[1] - 1
     
@@ -268,6 +286,7 @@ def resultdef(result, ht, at, divis, mdata, mtime, standings, THRESH = 0.4):
         if dict[res] > THRESH:
             logger.log('info', "Calculating class history", info=str(f'{ht}-{at}'))
             hist_dict = historyfunc(path, ht, at)
+            form_df = calculate_win_and_goal_form(lgdata)
             try:
                 hist_perc = hist_dict[res]
             except:
@@ -294,14 +313,36 @@ def resultdef(result, ht, at, divis, mdata, mtime, standings, THRESH = 0.4):
             tempser = tempser.tolist()
 
             outcome.loc[len(outcome)] = tempser
+            
+            # Merge form data for home and away teams
+            merged = outcome.merge(form_df, left_on='HomeTeam', right_on='team', suffixes=('', '_home'))
+            merged = merged.merge(form_df, left_on='AwayTeam', right_on='team', suffixes=('_home', '_away'))
 
-    return(outcome)
+            # Function to select correct form based on prediction type
+            def pick_form(row):
+                if row['Prediction'] in ['1', '2', 'X']:
+                    return pd.Series([row['HomeWinForm_home'], row['AwayWinForm_away']])
+                elif row['Prediction'] in ['O1_5', 'O2_5', 'O3_5', 'hO1_5', 'hO2_5', 'aO1_5', 'aO2_5']:
+                    return pd.Series([row['HomeGoalsForm_home'], row['AwayGoalsForm_away']])
+                else:
+                    return pd.Series([None, None])
+
+            merged[['HomeForm', 'AwayForm']] = merged.apply(pick_form, axis=1)
+
+            # Final result
+            result = merged[["Division", "Date", "Time", "HomeTeam", "AwayTeam", "Prediction", "Prediction %", 
+                             "History %", "Outcome", "HG", "AG", "HT_Points", "HT_Matches", "HT_athome_goal_scored", 
+                             "HT_athome_goal_against", "HT_athome_points", "HT_athome_wins", "HT_athome_draws", "HT_athome_loses", 
+                             "AT_Points", "AT_Matches", "AT_away_goal_scored", "AT_away_goal_against", "AT_away_points", "AT_away_wins", 
+                             "AT_away_draws", "AT_away_loses", "HomeForm", "AwayForm"]]
+
+    return(result)
 
 def download_league_data(url):
     league_data = pd.read_csv(url, encoding='utf-8-sig')
     league_data['Date'] = pd.to_datetime(league_data['Date'], format='%d/%m/%Y')
     league_data['time_diff'] = (league_data['Date'].max() - league_data['Date']).dt.days
-    league_data = league_data[['HomeTeam', 'AwayTeam', 'FTHG', 'FTAG', 'FTR', 'time_diff']]
+    league_data = league_data[['HomeTeam', 'AwayTeam', 'FTHG', 'FTAG', 'FTR', 'time_diff', 'Date']]
     league_data = league_data.rename(columns={'FTHG': 'HomeGoals', 'FTAG': 'AwayGoals'})
 
     return (league_data)
@@ -311,6 +352,37 @@ def upcoming(uri):
     next_match = next_match[['Date','Time','Div','HomeTeam','AwayTeam']]
     next_match['Date'] = pd.to_datetime(next_match['Date'], format='%d/%m/%Y')
     return next_match
+
+def load_fixtures_rapidapi():
+    url = "https://api-football-v1.p.rapidapi.com/v3/fixtures"
+    headers = {
+        "x-rapidapi-key": "1bf4766257mshe9c8904f8a1cd83p10743cjsnd805bdb2ddc1",
+        "x-rapidapi-host": "api-football-v1.p.rapidapi.com"
+    }
+
+    df = pd.DataFrame()
+    for k,league in DIVISIONS.items():
+
+        querystring = {"league":league, "season":"2025", "from":"2025-08-14", "to":"2025-08-18"}
+
+
+        response = requests.get(url, headers=headers, params=querystring)
+
+        if response.status_code == 200:
+            matches = response.json().get("response", [])
+            
+            data = pd.DataFrame([{
+                "Date": m["fixture"]["date"][:10],
+                "Time": m["fixture"]["date"][11:16],
+                "Div": k,
+                "HomeTeam": m["teams"]["home"]["name"],
+                "AwayTeam": m["teams"]["away"]["name"],
+            } for m in matches])
+            
+
+            df = pd.concat([df, data])
+    df['Date'] = pd.to_datetime(df['Date'], format='%d/%m/%Y')
+    return df
 
 def save_results_(df):
     if not os.path.exists(DATAPATH):
@@ -333,16 +405,74 @@ def save_results_(df):
     dt_gr = dt_utc.dt.tz_convert('Europe/Athens')
 
     # Update your DataFrame
-    towrite['Date'] = dt_gr.dt.strftime('%d-%m-%Y') + ', ' + dt_gr.dt.day_name(locale='en_US')
+    towrite['Date'] = dt_gr.dt.strftime('%Y-%m-%d') + ', ' + dt_gr.dt.day_name(locale='en_US')
     towrite['Time'] = dt_gr.dt.strftime('%H:%M')  
 
-    towrite['Date_temp'] = pd.to_datetime(towrite['Date'], dayfirst=True)
+    towrite['Date_temp'] = pd.to_datetime(towrite['Date'], format="%Y-%m-%d, %A")
     towrite['Time_temp'] = pd.to_datetime(towrite['Time'], format="%H:%M").dt.time
     towrite['Datetime_temp'] = towrite.apply(lambda x: pd.Timestamp.combine(x['Date_temp'], x['Time_temp']), axis=1)
     towrite.sort_values(by=['Datetime_temp', 'HomeTeam'], inplace=True)
     towrite.drop(columns=['Date_temp', 'Time_temp', 'Datetime_temp'],inplace=True)
 
     towrite.to_csv(filename, index=False)
+
+def calculate_win_and_goal_form(df):
+    # Ensure date is datetime
+    df['Date'] = pd.to_datetime(df['Date'], dayfirst=True) 
+    df = df.sort_values('Date')
+
+    # ----- HOME perspective -----
+    home_df = df[['HomeTeam', 'Date', 'HomeGoals', 'AwayGoals']].copy()
+    home_df['team'] = home_df['HomeTeam']
+    home_df['home_away'] = 'home'
+    home_df['win_form'] = home_df.apply(lambda x: 'W' if x['HomeGoals'] > x['AwayGoals'] 
+                                        else 'D' if x['HomeGoals'] == x['AwayGoals'] 
+                                        else 'L', axis=1)
+    home_df['goal_form'] = ((home_df['HomeGoals'] + home_df['AwayGoals']) > 2.5).map({True: 'O', False: 'U'})
+
+    # ----- AWAY perspective -----
+    away_df = df[['AwayTeam', 'Date', 'HomeGoals', 'AwayGoals']].copy()
+    away_df['team'] = away_df['AwayTeam']
+    away_df['home_away'] = 'away'
+    away_df['win_form'] = away_df.apply(lambda x: 'W' if x['AwayGoals'] > x['HomeGoals'] 
+                                        else 'D' if x['AwayGoals'] == x['HomeGoals'] 
+                                        else 'L', axis=1)
+    away_df['goal_form'] = ((away_df['HomeGoals'] + away_df['AwayGoals']) > 2.5).map({True: 'O', False: 'U'})
+
+    # Combine home & away
+    all_games = pd.concat([
+        home_df[['team', 'Date', 'home_away', 'win_form', 'goal_form']],
+        away_df[['team', 'Date', 'home_away', 'win_form', 'goal_form']]
+    ])
+
+    # Helper to pad form to 6 characters
+    def pad_form(form_list):
+        form_str = ''.join(form_list[-6:])
+        return form_str.rjust(6, '-')  # pad on the left so most recent stays at right
+
+    # Compute last 6 for each type of form
+    latest_forms = []
+    for (team, ha), group in all_games.groupby(['team', 'home_away']):
+        group = group.sort_values('Date')
+        win_last6 = pad_form(group['win_form'].tolist())
+        goal_last6 = pad_form(group['goal_form'].tolist())
+        latest_forms.append({
+            'team': team,
+            'home_away': ha,
+            'win_last6': win_last6,
+            'goal_last6': goal_last6
+        })
+
+    # Create DataFrame and pivot
+    form_df = pd.DataFrame(latest_forms)
+    form_df = form_df.pivot(index='team', columns='home_away', values=['win_last6', 'goal_last6']).reset_index()
+
+    # Flatten MultiIndex column names
+    form_df.columns = ['team', 'AwayWinForm', 'HomeWinForm', 'AwayGoalsForm', 'HomeGoalsForm']
+    # Reorder columns
+    form_df = form_df[['team', 'HomeWinForm', 'AwayWinForm', 'HomeGoalsForm', 'AwayGoalsForm']]
+
+    return form_df
 
 def historyfunc(path, hw, aw):
     """
@@ -599,6 +729,7 @@ if __name__ == '__main__':
 
     logger.log('info', "Downloading schedule..")
     next_match = upcoming('https://www.football-data.co.uk/fixtures.csv')
+    #next_match = load_fixtures_rapidapi()
     fromdate = min(next_match['Date']).strftime('%d%m%Y')
     todate = max(next_match['Date']).strftime('%d%m%Y')
     DATANAME = DATANAME.replace('{date1}', fromdate).replace('{date2}', todate) + '.csv'
@@ -660,7 +791,7 @@ if __name__ == '__main__':
                 logger.log('error', f"Issue encountered during simulation of {ht, at}", info=str(e))
                 continue    
             
-            res = resultdef(result, ht, at, divis, mdate, mtime, standings_df)
+            res = resultdef(result, ht, at, divis, mdate, mtime, standings_df, league_data)
             results_df = pd.concat([results_df, res])
             div_df = pd.concat([div_df, res])
 

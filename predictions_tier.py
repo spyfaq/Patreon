@@ -48,26 +48,34 @@ def get_color(val):
 
 def generate_reasoning(row):
     pred = row["Prediction"]
+    
+    # Core stats (fixed away goals bug)
+    home_form = f"{row['HomeTeam']} has won {row['HT_athome_wins']} of their last {row['HT_athome_wins'] + row['HT_athome_draws'] + row['HT_athome_loses']} home games."
+    away_form = f"{row['AwayTeam']} has won {row['AT_away_wins']} of {row['AT_away_wins'] + row['AT_away_draws'] + row['AT_away_loses']} away games."
+    home_goals = f"{row['HomeTeam']} averages {(row['HT_athome_goal_scored'] / (row['HT_athome_wins'] + row['HT_athome_draws'] + row['HT_athome_loses'])):.1f} goals at home."
+    away_goals = f"{row['AwayTeam']} averages {(row['AT_away_goal_scored'] / (row['AT_away_wins'] + row['AT_away_draws'] + row['AT_away_loses'])):.1f} goals away."
+    home_concede = f"{row['HomeTeam']} concedes {(row['HT_athome_goal_against'] / (row['HT_athome_wins'] + row['HT_athome_draws'] + row['HT_athome_loses'])):.1f} goals at home."
+    away_concede = f"{row['AwayTeam']} concedes {(row['AT_away_goal_against'] / (row['AT_away_wins'] + row['AT_away_draws'] + row['AT_away_loses'])):.1f} goals away."
 
-    home_form = f"{row['HomeTeam']} has won {row['HT_athome_wins']} of their last {row['HT_athome_wins']+ row['HT_athome_draws'] + row['HT_athome_loses']} home games."
-    away_form = f"{row['AwayTeam']} has won {row['AT_away_wins']} of {row['AT_Matches']} away games."
-    home_goals = f"{row['HomeTeam']} averages {row['HT_athome_goal_scored']:.1f} goals at home."
-    away_goals = f"{row['AwayTeam']} averages {row['AT_away_goal_scored']:.1f} goals away."
-    home_concede = f"{row['HomeTeam']} concedes {row['HT_athome_goal_against']:.1f} goals at home."
-    away_concede = f"{row['AwayTeam']} concedes {row['AT_away_goal_against']:.1f} goals away."
-
-    if pred == "Home Win":
-        return f"{home_form} {away_form} {away_concede}"
-    elif pred == "Away Win":
-        return f"{away_form} {home_form} {home_concede}"
-    elif pred in ["Over 1.5 Goals", "Over 2.5 Goals", "Over 3.5 Goals"]:
-        return f"{home_goals} {away_goals} {home_concede} {away_concede}"
-    elif pred == "Both Teams to Score":
-        return f"{home_goals} {away_goals} Both teams have tendencies to concede regularly."
-    elif pred == "Draw":
-        return f"Both teams show balanced results: {home_form} {away_form}."
+    # Reasoning per prediction code
+    if pred == "1":
+        reasoning = f"{home_form} {away_form} {away_concede} Strong home record supports this."
+    elif pred == "2":
+        reasoning = f"{away_form} {home_form} {home_concede} Away form makes them favourites."
+    elif pred in ["O1_5", "O2_5", "O3_5"]:
+        reasoning = f"{home_goals} {away_goals} {home_concede} {away_concede} Both sides look capable of goals."
+    elif pred == "GG":
+        reasoning = f"{home_goals} {away_goals} Both teams tend to concede ({home_concede}, {away_concede}), making goals at both ends likely."
+    elif pred == "X":
+        reasoning = f"Balanced recent form: {home_form} {away_form} A draw is a strong possibility."
+    elif pred.startswith("hO"):
+        reasoning = f"{home_goals} {away_concede} The home side’s attack should produce the required goals."
+    elif pred.startswith("aO"):
+        reasoning = f"{away_goals} {home_concede} The away side’s attack looks likely to score well."
     else:
-        return "Prediction based on statistical analysis."
+        reasoning = "Prediction based on statistical analysis."
+
+    return reasoning
 
 def parse_hist(s):
     try:

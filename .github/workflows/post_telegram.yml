@@ -2,8 +2,9 @@ name: Daily Telegram Post from Dropbox
 
 on:
   schedule:
-    - cron: "0 16 * * 2" # Tuesday at 16:00 UTC - 1900 GR
-    - cron: "0 16 * * 5" # Friday at 16:00 UTC - 1900 GR
+    - cron: "0 9 * * *"   # Every day at 11:00 GR (09:00 UTC)
+    - cron: "15 16 * * 2" # Tuesday at 19:15 GR (16:15 UTC)
+    - cron: "15 16 * * 5" # Friday at 19:15 GR (16:15 UTC)
   workflow_dispatch: # Allow manual run
 
 jobs:

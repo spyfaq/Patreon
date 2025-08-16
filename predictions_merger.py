@@ -82,10 +82,24 @@ def accumulate_data(majorfile, minorfile):
         
 def saveto_csv(towrite):
     logger.log('info', f'Saving results..')
-    towrite['Date'] = pd.to_datetime(towrite['Date'], dayfirst=True)
-    towrite['Date'] = towrite['Date'].dt.strftime('%d-%m-%Y, %A')
+
+    core = towrite['Date'].astype(str).str.split(",", n=1).str[0].str.strip()
+
+    # Remove the weekday name after the comma
+    d_ymd = pd.to_datetime(core, format="%Y-%m-%d", errors="coerce")  # 2025-08-17
+    d_dmy = pd.to_datetime(core, format="%d-%m-%Y", errors="coerce")  # 15-08-2025
+    d_full = pd.to_datetime(core, format="%Y-%m-%d %H:%M:%S", errors="coerce")  # YYYY-MM-DD HH:MM:SS
+
+    # 3) Merge results (priority: full datetime > YYYY-MM-DD > DD-MM-YYYY)
+    towrite["Date"] = d_full.fillna(d_ymd).fillna(d_dmy)
+
+    towrite['Date'] = towrite['Date'].dt.strftime('%d-%m-%Y')
     towrite['Date_temp'] = pd.to_datetime(towrite['Date'], dayfirst=True)
-    towrite['Time_temp'] = pd.to_datetime(towrite['Time']).dt.time
+    towrite['Time_temp'] = (
+    pd.to_datetime(towrite['Time'], errors='coerce')
+    .dt.time
+    .fillna(datetime.time(0, 0))  # replace NaT with 00:00
+)
     towrite['Datetime_temp'] = towrite.apply(lambda x: pd.Timestamp.combine(x['Date_temp'], x['Time_temp']), axis=1)
     towrite.sort_values(by=['Datetime_temp', 'HomeTeam'], inplace=True)
 

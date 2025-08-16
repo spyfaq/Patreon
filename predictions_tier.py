@@ -125,6 +125,11 @@ def main():
     df_full["Prediction %"] = df_full["Prediction %"].apply(lambda x: f"{x*100:.2f}%")
     df_full["Match"] = df_full["HomeTeam"] + " vs " + df_full["AwayTeam"]
 
+    df_full['Time'] = (
+    pd.to_datetime(df_full['Time'], errors='coerce')
+    .dt.time
+    .fillna(datetime.time(0, 0))  # replace NaT with 00:00
+)
     # Assume df_full['Date'] is already a datetime.date and df_full['Time'] is datetime.time
     df_full['Datetime_temp'] = pd.to_datetime(df_full['Date'].astype(str) + ' ' + df_full['Time'].astype(str), dayfirst=True)
 
@@ -188,13 +193,16 @@ def main():
 
         logger.log('info', f'Creating VIP: Top 10 picks + reasoning + csv..')
         vip = top_picks[["Division", "Match", "Prediction", "Confidence", "Prediction %", "History %"]]
+        vip = vip.head(10)
         # Telegram-friendly VIP list
         vip_tg = f"💎 <b>VIP Picks — {date_str}</b>\n\n"
+        vip.sort_values(by='Match', inplace=True)
         for _, row in vip.iterrows():
             vip_tg += f"{row['Confidence']} <b>{row['Match']}</b> → {row['Prediction']} ({row['Prediction %']} | {row['History %']})\n"
 
         # Add reasoning for top 5
         vip_tg += "\n<b>Reasoning for Top 5:</b>\n"
+        top_picks.head(5).sort_values(by='Match', inplace=True)
         for _, row in top_picks.head(5).iterrows():
             vip_tg += f"• <b>{row['Match']}</b> → {row['Prediction']} ({row['Prediction %']})\n"
             vip_tg += f"  <i>{row['Reasoning']}</i>\n"

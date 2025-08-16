@@ -350,7 +350,7 @@ def download_league_data(url):
     old_league = old_league[['HomeTeam', 'AwayTeam', 'FTHG', 'FTAG', 'time_diff']]
 
     league_data = league_data[league_data['season_end'] == current_season]
-    league_data = league_data[['Home', 'Away', 'HG', 'AG', 'Res', 'time_diff']]
+    league_data = league_data[['Home', 'Away', 'HG', 'AG', 'Res', 'time_diff', 'Date']]
     league_data = league_data.rename(columns={'HG': 'HomeGoals', 'AG': 'AwayGoals', 'Home': 'HomeTeam', 'Away': 'AwayTeam', 'Res': 'FTR'})
     
 

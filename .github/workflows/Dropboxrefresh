@@ -2,7 +2,8 @@ name: Dropbox Upload
 
 on:
   schedule:
-    - cron: "0 10 * * *"   # Every day at 12:00 GR (10:00 UTC)
+    - cron: "0 9 * * *"   # Every day at 12:00 GR (10:00 UTC)
+    - cron: "0 14 * * *"   # Every day at 12:00 GR (10:00 UTC)
   workflow_dispatch: # run manually
   push:
     branches:
@@ -33,7 +34,7 @@ jobs:
         env:
           DROPBOX_APP_KEY: ${{ secrets.DROPBOX_APP_KEY }}
           DROPBOX_APP_SECRET: ${{ secrets.DROPBOX_APP_SECRET }}
-          DROPBOX_REFRESH_TOKEN: ${{ secrets.DROPBOX_REFRESH_TOKEN }}
+          DROPBOX_REFRESH_TOKEN: ${{ secrets.DROPBOX_ACCESS_TOKEN }}
 
       - name: Upload file to Dropbox
         run: |

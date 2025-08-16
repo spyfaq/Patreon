@@ -58,20 +58,20 @@ def generate_reasoning(row):
     away_concede = f"{row['AwayTeam']} concedes {(row['AT_away_goal_against'] / (row['AT_away_wins'] + row['AT_away_draws'] + row['AT_away_loses'])):.1f} goals away."
 
     # Reasoning per prediction code
-    if pred == "1":
+    if pred == "Home Win":
         reasoning = f"{home_form} {away_form} {away_concede} Strong home record supports this."
-    elif pred == "2":
+    elif pred == "Away Win":
         reasoning = f"{away_form} {home_form} {home_concede} Away form makes them favourites."
-    elif pred in ["O1_5", "O2_5", "O3_5"]:
-        reasoning = f"{home_goals} {away_goals} {home_concede} {away_concede} Both sides look capable of goals."
-    elif pred == "GG":
+    elif pred == "Both Teams to Score":
         reasoning = f"{home_goals} {away_goals} Both teams tend to concede ({home_concede}, {away_concede}), making goals at both ends likely."
-    elif pred == "X":
+    elif pred == "Draw":
         reasoning = f"Balanced recent form: {home_form} {away_form} A draw is a strong possibility."
-    elif pred.startswith("hO"):
+    elif "Home team Over" in pred:
         reasoning = f"{home_goals} {away_concede} The home side’s attack should produce the required goals."
-    elif pred.startswith("aO"):
+    elif "Away team Over" in pred:
         reasoning = f"{away_goals} {home_concede} The away side’s attack looks likely to score well."
+    elif 'Over' in pred:
+        reasoning = f"{home_goals} {away_goals} {home_concede} {away_concede} Both sides look capable of goals."
     else:
         reasoning = "Prediction based on statistical analysis."
 

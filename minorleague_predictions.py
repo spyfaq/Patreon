@@ -374,25 +374,28 @@ def save_results_(df):
     else:
         towrite = df
 
-    # Combine Date and Time into a single datetime in UTC
-    dt_utc = pd.to_datetime(
-        towrite['Date'].astype(str) + ' ' + towrite['Time'].astype(str),
-        utc=True
-    )
+    try:
+        # Combine Date and Time into a single datetime in UTC
+        dt_utc = pd.to_datetime(
+            towrite['Date'].astype(str) + ' ' + towrite['Time'].astype(str),
+            utc=True
+        )
 
-    # Convert from UTC to Greece time (Athens)
-    dt_gr = dt_utc.dt.tz_convert('Europe/Athens')
+        # Convert from UTC to Greece time (Athens)
+        dt_gr = dt_utc.dt.tz_convert('Europe/Athens')
 
-    # Update your DataFrame
-    towrite['Date'] = dt_gr.dt.strftime('%d-%m-%Y') + ', ' + dt_gr.dt.day_name(locale='en_US')
-    towrite['Time'] = dt_gr.dt.strftime('%H:%M')  
+        # Update your DataFrame
+        towrite['Date'] = dt_gr.dt.strftime('%d-%m-%Y') + ', ' + dt_gr.dt.day_name(locale='en_US')
+        towrite['Time'] = dt_gr.dt.strftime('%H:%M')  
 
-    towrite['Date_temp'] = pd.to_datetime(towrite['Date'], dayfirst=True)
-    towrite['Time_temp'] = pd.to_datetime(towrite['Time'], format="%H:%M").dt.time
-    towrite['Datetime_temp'] = towrite.apply(lambda x: pd.Timestamp.combine(x['Date_temp'], x['Time_temp']), axis=1)
-    towrite.sort_values(by=['Datetime_temp', 'HomeTeam'], inplace=True)
-    towrite.drop(columns=['Date_temp', 'Time_temp', 'Datetime_temp'],inplace=True)
-
+        towrite['Date_temp'] = pd.to_datetime(towrite['Date'], dayfirst=True)
+        towrite['Time_temp'] = pd.to_datetime(towrite['Time'], format="%H:%M").dt.time
+        towrite['Datetime_temp'] = towrite.apply(lambda x: pd.Timestamp.combine(x['Date_temp'], x['Time_temp']), axis=1)
+        towrite.sort_values(by=['Datetime_temp', 'HomeTeam'], inplace=True)
+        towrite.drop(columns=['Date_temp', 'Time_temp', 'Datetime_temp'],inplace=True)
+    except:
+        logger.log('error', f"Issue converting date.. Saving without sorting..")
+        
     towrite.to_csv(filename, index=False)
 
 def historyfunc(path, hw, aw, old_df):

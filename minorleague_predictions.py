@@ -516,37 +516,6 @@ def historyfunc(path, hw, aw, old_df):
 
     return (dict)
 
-def load_fixtures_rapidapi():
-    url = "https://api-football-v1.p.rapidapi.com/v3/fixtures"
-    headers = {
-        "x-rapidapi-key": "1bf4766257mshe9c8904f8a1cd83p10743cjsnd805bdb2ddc1",
-        "x-rapidapi-host": "api-football-v1.p.rapidapi.com"
-    }
-
-    df = pd.DataFrame()
-    for k,league in DIVISIONS.items():
-
-        querystring = {"league":league, "season":"2025", "from":"2025-08-14", "to":"2025-08-18"}
-
-
-        response = requests.get(url, headers=headers, params=querystring)
-
-        if response.status_code == 200:
-            matches = response.json().get("response", [])
-            
-            data = pd.DataFrame([{
-                "Date": m["fixture"]["date"][:10],
-                "Time": m["fixture"]["date"][11:16],
-                "Div": k,
-                "HomeTeam": m["teams"]["home"]["name"],
-                "AwayTeam": m["teams"]["away"]["name"],
-            } for m in matches])
-            
-
-            df = pd.concat([df, data])
-    df['Date'] = pd.to_datetime(df['Date'], format='%d/%m/%Y')
-    return df
-
 def calculate_win_and_goal_form(df):
     # Ensure date is datetime
     df['Date'] = pd.to_datetime(df['Date'], dayfirst=True) 

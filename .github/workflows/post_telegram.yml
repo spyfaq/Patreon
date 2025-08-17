@@ -8,10 +8,6 @@ on:
   workflow_dispatch: # Allow manual run
 
 jobs:
-  refresh-token-job:
-    uses: ./.github/workflows/dropbox_refresh.yml
-    secrets: inherit
-
   post:
     runs-on: ubuntu-latest
     steps:

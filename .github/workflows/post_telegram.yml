@@ -25,10 +25,22 @@ jobs:
 
       - name: Install dependencies
         run: pip install requests
+        
+      - name: Get Dropbox Access Token
+        run: |
+          RESPONSE=$(curl -s -u "${{ secrets.DROPBOX_APP_KEY }}:${{ secrets.DROPBOX_APP_SECRET }}" \
+            -d refresh_token=${{ secrets.DROPBOX_REFRESH_TOKEN }} \
+            -d grant_type=refresh_token \
+            https://api.dropbox.com/oauth2/token)
 
+          echo "Full response: $RESPONSE"
+          ACCESS_TOKEN=$(echo "$RESPONSE" | jq -r '.access_token')
+
+          # Set token as env variable for next steps or calling workflow
+          echo "DROPBOX_ACCESS_TOKEN=$ACCESS_TOKEN" >> $GITHUB_ENV
+          
       - name: Run posting script
         env:
-          DROPBOX_ACCESS_TOKEN: ${{ needs.refresh-token-job.outputs.access_token }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID_TIER1: ${{ secrets.TELEGRAM_CHAT_ID_TIER1 }}
           TELEGRAM_CHAT_ID_TIER3: ${{ secrets.TELEGRAM_CHAT_ID_TIER3 }}

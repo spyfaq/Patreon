@@ -2,8 +2,8 @@ name: Predictions Pipeline
 
 on:
   schedule:
-    - cron: "0 17 * * 2" # Tuesday at 17:00 UTC
-    - cron: "0 17 * * 5" # Friday at 17:00 UTC
+    - cron: "0 17 * * 2" # Tuesday at 16:00 UTC (17:00 British)
+    - cron: "0 17 * * 5" # Friday at 17:00 UTC (18:00 British)
   workflow_dispatch: # Allow manual run
 
 jobs:
@@ -22,10 +22,17 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      - name: Create Folders
+        run: mkdir -p predictions_data/ logs/simu/
+
       - name: Run Major League Predictions
-        env:
-          DROPBOX_ACCESS_TOKEN: ${{ secrets.DROPBOX_ACCESS_TOKEN }}
         run: python majorleague_predictions.py
+
+      - name: Upload Major League predictions
+        uses: actions/upload-artifact@v3
+        with:
+          name: majorleague-predictions
+          path: predictions_data/*
 
   minorleague:
     runs-on: ubuntu-latest
@@ -42,10 +49,17 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      - name: Create Folders
+        run: mkdir -p predictions_data/ logs/simu/
+
       - name: Run Minor League Predictions
-        env:
-          DROPBOX_ACCESS_TOKEN: ${{ secrets.DROPBOX_ACCESS_TOKEN }}
         run: python minorleague_predictions.py
+
+      - name: Upload Minor League predictions
+        uses: actions/upload-artifact@v3
+        with:
+          name: minorleague-predictions
+          path: predictions_data/*
 
   merge_and_tier:
     runs-on: ubuntu-latest
@@ -61,22 +75,76 @@ jobs:
           cache: "pip"
 
       - name: Install dependencies
-        run: pip install -r requirements.txt requests
+        run: pip install -r requirements.txt
+
+      - name: Create Folders
+        run: mkdir -p logs/data/ logs/merger/ predictions_data/ publish/
+
+      - name: Download Major League predictions
+        uses: actions/download-artifact@v3
+        with:
+          name: majorleague-predictions
+          path: predictions_data/
+
+      - name: Download Minor League predictions
+        uses: actions/download-artifact@v3
+        with:
+          name: minorleague-predictions
+          path: predictions_data/
 
       - name: Merge Predictions
-        env:
-          DROPBOX_ACCESS_TOKEN: ${{ secrets.DROPBOX_ACCESS_TOKEN }}
         run: python predictions_merger.py
 
       - name: Tier Predictions
-        env:
-          DROPBOX_ACCESS_TOKEN: ${{ secrets.DROPBOX_ACCESS_TOKEN }}
         run: python predictions_tier.py
 
-      - name: Post to Telegram
-        env:
-          DROPBOX_ACCESS_TOKEN: ${{ secrets.DROPBOX_ACCESS_TOKEN }}
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID_TIER1: ${{ secrets.TELEGRAM_CHAT_ID_TIER1 }}
-          TELEGRAM_CHAT_ID_TIER3: ${{ secrets.TELEGRAM_CHAT_ID_TIER3 }}
-        run: python post_from_dropbox.py
+      - name: Upload Predictions
+        uses: actions/upload-artifact@v3
+        with:
+          name: predictions
+          path: publish/*        
+
+  posting:
+    runs-on: ubuntu-latest
+    needs: [merge_and_tier]
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Install jq
+        run: sudo apt-get update && sudo apt-get install -y jq
+        
+      - name: Get Dropbox Access Token
+        run: |
+          RESPONSE=$(curl -s -u "${{ secrets.DROPBOX_APP_KEY }}:${{ secrets.DROPBOX_APP_SECRET }}" \
+            -d refresh_token=${{ secrets.DROPBOX_REFRESH_TOKEN }} \
+            -d grant_type=refresh_token \
+            https://api.dropbox.com/oauth2/token)
+
+          echo "Full response: $RESPONSE"
+          ACCESS_TOKEN=$(echo "$RESPONSE" | jq -r '.access_token')
+
+          # Set token as env variable for next steps or calling workflow
+          echo "DROPBOX_ACCESS_TOKEN=$ACCESS_TOKEN" >> $GITHUB_ENV
+
+      - name: Create Folders
+        run: mkdir -p publish/
+
+      - name: Download  predictions
+        uses: actions/download-artifact@v3
+        with:
+          name: predictions
+          path: publish/
+
+      - name: Upload_to_dropbox
+        run: python upload_to_dropbox.py

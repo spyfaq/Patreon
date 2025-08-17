@@ -14,7 +14,7 @@ DROPBOX_FOLDER = "/telegram_content"
 today_str = datetime.date.today().strftime("%Y-%m-%d")
 
 def list_dropbox_files():
-    print(DROPBOX_TOKEN)
+    print(DROPBOX_TOKEN, flush=True)
     url = "https://api.dropboxapi.com/2/files/list_folder"
     headers = {"Authorization": f"Bearer {DROPBOX_TOKEN}", "Content-Type": "application/json"}
     payload = {"path": DROPBOX_FOLDER}

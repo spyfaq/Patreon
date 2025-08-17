@@ -41,7 +41,7 @@ for tier in CHAT_IDS.keys():
     )
     # Find today's CSV file
     csv_file = next(
-        (f for f in files if f["name"].startswith(tier) and f["name"].endswith(f"{today_str}.csv")),
+        (f for f in files if f["name"].startswith(tier) and f["name"].endswith(f"{today_str}.xlsx")),
         None
     )
 

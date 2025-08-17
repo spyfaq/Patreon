@@ -6,6 +6,9 @@ import pandas as pd
 from datetime import datetime, timedelta
 import datetime, os
 from jsonlogger_class import JSONLogger
+from openpyxl import load_workbook
+from openpyxl.worksheet.table import Table, TableStyleInfo
+from openpyxl.utils import get_column_letter
 
 LOGPATH = 'logs/data/'
 LOGNAME = '{date}_tipsselection_logs'
@@ -13,9 +16,89 @@ DATANAME = 'my_prediction_data_{date1}_{date2}'
 DATAPATH = 'predictions_data/'
 PUBLISHPATH = 'publish/'
 
+LEAGUES = {'EN PremierLeague': 'E0',
+               'EN Championship': 'E1',
+               'DE Bundesliga': 'D1',
+               'IT Serie A': 'I1',
+               'SP LaLiga': 'SP1',
+               'FR Championnat': 'F1',
+               'NH Eredivisie': 'N1',
+               'BG JupilerLeague': 'B1',
+               'PR Liga I': 'P1',
+               'GR SuperLeague': 'G1',
+               'DE Bundesliga 2': 'D2',
+               'IT Serie B': 'I2',
+               'SP Segunda': 'SP2',
+               'FR Division 2': 'F2',
+               'EN League 1': 'E2',
+               'SC PremierLeague': 'SC0',
+               'TR Futbol Ligi 1': 'T1',
+                'AT Bundesliga': 'Austria',
+                'AR Liga Profesional': 'Argentina',
+                'BR Serie A': 'Brazil',
+                'DK Superliga': 'Denmark',
+                'FI Veikkausliiga': 'Finland',
+                'IE Premier Division': 'Ireland',
+                'MX Liga MX': 'Mexico',
+                'NO Eliteserien': 'Norway',
+                'PL Ekstraklasa': 'Poland',
+                'RO Liga I': 'Romania',
+                'SE Allsvenskan': 'Sweden',
+                'CH Super League': 'Switzerland',
+                'US Major League Soccer': 'USA'
+               }
 
 today_str = datetime.datetime.today().strftime("%d-%m-%Y")
 
+def savetoexcel_format(df, excel_file):
+    logger.log('info', 'Saving into a nice excel..', info=excel_file)
+    df.to_excel(excel_file, index=False, sheet_name="Sheet1")
+
+    # Load workbook with openpyxl
+    wb = load_workbook(excel_file)
+    ws = wb["Sheet1"]
+    
+    # Freeze top row
+    ws.freeze_panes = "A2"
+
+    # Define table range (A1 through last row/col)
+    last_row = ws.max_row
+    last_col = ws.max_column
+    last_col_letter = get_column_letter(last_col)
+    table_range = f"A1:{last_col_letter}{last_row}"
+
+    # Create Excel Table
+    table = Table(displayName="PredTable", ref=table_range)
+
+    # Optional: style
+    style = TableStyleInfo(
+        name="TableStyleLight1",  
+        showFirstColumn=False,
+        showLastColumn=False,
+        showRowStripes=True,  # stripe rows
+        showColumnStripes=False
+    )
+    table.tableStyleInfo = style
+
+    # Add table to sheet
+    ws.add_table(table)
+
+    # Auto-adjust column widths
+    for col in ws.columns:
+        max_length = 0
+        col_letter = get_column_letter(col[0].column)
+        for cell in col:
+            try:
+                cell_length = len(str(cell.value))
+                if cell_length > max_length:
+                    max_length = cell_length
+            except:
+                pass
+        # Add a little extra space
+        ws.column_dimensions[col_letter].width = max_length + 2
+
+    # Save workbook
+    wb.save(excel_file)
 
 def newest_predictions() -> str:
     logger.log('info', 'Searching latest prediction file..')
@@ -34,7 +117,6 @@ def newest_predictions() -> str:
         logger.log('error', f'File not found..')
         return('\\99999999')
 
-
 def get_color(val):
     if isinstance(val, float):
         if val >= 0.8:
@@ -44,7 +126,6 @@ def get_color(val):
         else:
             return "background-color: #ffc7ce"
     return ""
-
 
 def generate_reasoning(row):
     pred = row["Prediction"]
@@ -105,6 +186,12 @@ def main():
     
     logger.log('info', f'Loading file..', filename)
     df_full = pd.read_csv(filename)
+    df_full.rename(columns={'History %': 'History H2H'}, inplace=True)
+    # Reverse the LEAGUES dict
+    code_to_name = {v: k for k, v in LEAGUES.items()}
+
+    # Map the 'div' column
+    df_full['Division'] = df_full['Division'].map(code_to_name)
 
     logger.log('info', f'Map predictions to friendly names..')
     prediction_map = {
@@ -146,7 +233,7 @@ def main():
         # Convert Prediction % from decimal to real % float (before formatting)
         df_date["PredValue"] = df_date["Prediction %"].apply(lambda s: float(str(s).replace('%', '').strip()))
         # Parse History "x/y" into a fraction
-        df_date["HistValue"] = df_date["History %"].apply(parse_hist)
+        df_date["HistValue"] = df_date["History H2H"].apply(parse_hist)
 
         df_date["ConfScore"] = (0.7 * df_date["PredValue"]) + (0.3 * df_date["HistValue"].fillna(df_date["PredValue"]))
         def conf_emoji(score):
@@ -192,13 +279,13 @@ def main():
             f.write(public_tg)
 
         logger.log('info', f'Creating VIP: Top 10 picks + reasoning + csv..')
-        vip = top_picks[["Division", "Match", "Prediction", "Confidence", "Prediction %", "History %"]]
+        vip = top_picks[["Division", "Match", "Prediction", "Confidence", "Prediction %", "History H2H"]]
         vip = vip.head(10)
         # Telegram-friendly VIP list
         vip_tg = f"💎 <b>VIP Picks — {date_str}</b>\n\n"
         vip.sort_values(by='Match', inplace=True)
         for _, row in vip.iterrows():
-            vip_tg += f"{row['Confidence']} <b>{row['Match']}</b> → {row['Prediction']} ({row['Prediction %']} | {row['History %']})\n"
+            vip_tg += f"{row['Confidence']} <b>{row['Match']}</b> → {row['Prediction']} ({row['Prediction %']} | {row['History H2H']})\n"
 
         # Add reasoning for top 5
         vip_tg += "\n<b>Reasoning for Top 5:</b>\n"
@@ -207,12 +294,13 @@ def main():
             vip_tg += f"• <b>{row['Match']}</b> → {row['Prediction']} ({row['Prediction %']})\n"
             vip_tg += f"  <i>{row['Reasoning']}</i>\n"
 
+        df_save = df_date[["Division", "Date", "Time", "HomeTeam", "AwayTeam", "Prediction", "Prediction %", "History H2H", "HomeForm", "AwayForm", "Reasoning", "HT_Points", "HT_Matches", "HT_athome_goal_scored", "HT_athome_goal_against", "HT_athome_points", "HT_athome_wins", "HT_athome_draws", "HT_athome_loses", "AT_Points", "AT_Matches", "AT_away_goal_scored", "AT_away_goal_against", "AT_away_points", "AT_away_wins", "AT_away_draws", "AT_away_loses"]]
         # Telegram text, and CSV
         with open(f"{PUBLISHPATH}/VIP_{date_str}.txt", "w", encoding="utf-8") as f:
             f.write(vip_tg)
-        csv_filename = f"{PUBLISHPATH}/VIP_{date_str}.csv"
-        df_date.to_csv(csv_filename, index=False)
-
+        filename = f"{PUBLISHPATH}/VIP_{date_str}.xlsx"
+        savetoexcel_format(df_save, filename)
+        #df_date.to_csv(csv_filename, index=False)
 
     logger.log('info', f'Telegram content generated..')
     return

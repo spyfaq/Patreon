@@ -6,12 +6,9 @@ on:
 jobs:
   refresh-token:
     runs-on: ubuntu-latest
-    outputs:
-      access_token: ${{ steps.get_token.outputs.access_token }}
 
     steps:
       - name: Get Dropbox Access Token
-        id: get_token
         run: |
           RESPONSE=$(curl -s -u "${{ secrets.DROPBOX_APP_KEY }}:${{ secrets.DROPBOX_APP_SECRET }}" \
             -d refresh_token=${{ secrets.DROPBOX_REFRESH_TOKEN }} \
@@ -20,4 +17,6 @@ jobs:
 
           echo "Full response: $RESPONSE"
           ACCESS_TOKEN=$(echo "$RESPONSE" | jq -r '.access_token')
-          echo "access_token=$ACCESS_TOKEN" >> $GITHUB_OUTPUT
+
+          # Set token as env variable for next steps or calling workflow
+          echo "DROPBOX_ACCESS_TOKEN=$ACCESS_TOKEN" >> $GITHUB_ENV

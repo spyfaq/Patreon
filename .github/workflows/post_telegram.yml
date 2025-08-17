@@ -28,6 +28,7 @@ jobs:
 
       - name: Run posting script
         env:
+          DROPBOX_ACCESS_TOKEN: ${{ needs.refresh-token-job.outputs.access_token }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID_TIER1: ${{ secrets.TELEGRAM_CHAT_ID_TIER1 }}
           TELEGRAM_CHAT_ID_TIER3: ${{ secrets.TELEGRAM_CHAT_ID_TIER3 }}

@@ -29,6 +29,22 @@ LEAGUES = {
     'USA' : 'USA'
 }
 
+DIVISIONS = {
+    "AUT": "218",
+    "ARG": "129",
+    "BRA": "71",
+    "DNK": "120",
+    "FIN": "244",
+    "IRL": "357",
+    "MEX": "262",
+    "NOR": "103",
+    "POL": "106",
+    "ROU": "283",
+    "SWE": "113",
+    "SWZ": "207",
+    "USA": "253",
+}
+
 """
 Path to save  data
 """

@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 import pandas as pd
-import io, sys, argparse, time, requests
+import sys, argparse, time
 from datetime import datetime
 
 
@@ -13,17 +13,16 @@ URLS = {
 
 def get_upcoming_fixtures(url):
     try:
-        resp = requests.get(url, timeout=10)
-        resp.raise_for_status()
-        df = pd.read_csv(io.StringIO(resp.text))
+        df = pd.read_csv(url)
 
-        if "Date" not in df.columns:
-            print(f"⚠️ No 'Date' column found in {url}")
-            return pd.DataFrame()
-
+        # Parse date column
         df["Date"] = pd.to_datetime(df["Date"], errors="coerce", dayfirst=True)
-        today = pd.Timestamp(datetime.today().date())
-        return df[df["Date"] >= today]
+
+        # Only fixtures strictly after today
+        tomorrow = pd.Timestamp(datetime.today().date()) + pd.Timedelta(days=1)
+        upcoming = df[df["Date"] >= tomorrow]
+
+        return upcoming
 
     except Exception as e:
         print(f"❌ Error fetching {url}: {e}")
@@ -42,7 +41,6 @@ if __name__ == "__main__":
         fixtures = get_upcoming_fixtures(url)
         if not fixtures.empty:
             print(f"✅ Upcoming fixtures found in {args.league} ({len(fixtures)} matches)")
-            print(fixtures.head(10))
             sys.exit(0)
         else:
             print(f"⏳ Attempt {attempt}/{args.retries}: no fixtures yet in {args.league}")

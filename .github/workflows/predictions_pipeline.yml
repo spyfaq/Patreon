@@ -29,7 +29,7 @@ jobs:
         run: python majorleague_predictions.py
 
       - name: Upload Major League predictions
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: majorleague-predictions
           path: predictions_data/*
@@ -56,7 +56,7 @@ jobs:
         run: python minorleague_predictions.py
 
       - name: Upload Minor League predictions
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: minorleague-predictions
           path: predictions_data/*
@@ -99,7 +99,7 @@ jobs:
         run: python predictions_tier.py
 
       - name: Upload Predictions
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: predictions
           path: publish/*        

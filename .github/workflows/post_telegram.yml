@@ -3,7 +3,7 @@ name: Daily Telegram Post from Dropbox
 on:
   schedule:
     - cron: "0 9 * * *"   # Every day at 09:00 UTC (12:00 GR)
-    - cron: "15 16 * * 2" # Tuesday at 15:15 UTC (18:15 GR)
+    - cron: "15 12 * * 2" # Tuesday at 15:15 Greek 
     - cron: "15 16 * * 5" # Friday at 15:15 UTC (18:15 GR)
   workflow_dispatch: # Allow manual run
 

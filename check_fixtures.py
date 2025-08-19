@@ -40,10 +40,10 @@ if __name__ == "__main__":
     for attempt in range(1, args.retries + 1):
         fixtures = get_upcoming_fixtures(url)
         if not fixtures.empty:
-            print(f"✅ Upcoming fixtures found in {args.league} ({len(fixtures)} matches)")
+            print(f"✅ Upcoming fixtures found in {args.league} ({len(fixtures)} matches - {time.ctime()})")
             sys.exit(0)
         else:
-            print(f"⏳ Attempt {attempt}/{args.retries}: no fixtures yet in {args.league}")
+            print(f"⏳ Attempt {attempt}/{args.retries}: no fixtures yet in {args.league} - {time.ctime()}")
             if attempt < args.retries:
                 time.sleep(args.interval)
 

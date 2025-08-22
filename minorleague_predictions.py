@@ -272,12 +272,11 @@ def resultdef(result, ht, at, divis, mdata, mtime, standings, old_df, lgdata, TH
             'aO2_5': aO2_5,
             }
 
-    outcome = pd.DataFrame(columns=['Division', 'Date', 'Time', 'HomeTeam', 'AwayTeam', 'Prediction', 'Prediction %', 'History %',
-                                    'Outcome', 'HG', 'AG',
-                                    'HT_Points', 'HT_Matches', 'HT_athome_goal_scored', 'HT_athome_goal_against',
-                                    'HT_athome_points', 'HT_athome_wins', 'HT_athome_draws', 'HT_athome_loses',
-                                    'AT_Points', 'AT_Matches', 'AT_away_goal_scored', 'AT_away_goal_against',
-                                    'AT_away_points', 'AT_away_wins', 'AT_away_draws', 'AT_away_loses'])
+    outcome = pd.DataFrame(columns=["Division", "Date", "Time", "HomeTeam", "AwayTeam", "Prediction", "Prediction %", 
+                             "History %", "Outcome", "HG", "AG", "HT_Points", "HT_Matches", "HT_athome_goal_scored", 
+                             "HT_athome_goal_against", "HT_athome_points", "HT_athome_wins", "HT_athome_draws", "HT_athome_loses", 
+                             "AT_Points", "AT_Matches", "AT_away_goal_scored", "AT_away_goal_against", "AT_away_points", "AT_away_wins", 
+                             "AT_away_draws", "AT_away_loses", "HomeForm", "AwayForm"])
     
     logger.log('info', "Calculating class history", info=str(f'{ht}-{at}'))
     hist_dict = historyfunc(path, ht, at, old_df)
@@ -327,13 +326,13 @@ def resultdef(result, ht, at, divis, mdata, mtime, standings, old_df, lgdata, TH
             merged[['HomeForm', 'AwayForm']] = merged.apply(pick_form, axis=1)
 
             # Final result
-            result = merged[["Division", "Date", "Time", "HomeTeam", "AwayTeam", "Prediction", "Prediction %", 
+            outcome = merged[["Division", "Date", "Time", "HomeTeam", "AwayTeam", "Prediction", "Prediction %", 
                              "History %", "Outcome", "HG", "AG", "HT_Points", "HT_Matches", "HT_athome_goal_scored", 
                              "HT_athome_goal_against", "HT_athome_points", "HT_athome_wins", "HT_athome_draws", "HT_athome_loses", 
                              "AT_Points", "AT_Matches", "AT_away_goal_scored", "AT_away_goal_against", "AT_away_points", "AT_away_wins", 
                              "AT_away_draws", "AT_away_loses", "HomeForm", "AwayForm"]]
 
-    return(result)
+    return(outcome)
 
 def download_league_data(url):
     league_data = pd.read_csv(url)

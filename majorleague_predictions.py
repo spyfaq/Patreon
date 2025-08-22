@@ -3,7 +3,7 @@
 
 import pandas as pd
 import numpy as np
-import  sys, os, datetime, requests
+import  sys, os, datetime, requests, warnings
 from scipy.stats import poisson
 from scipy.optimize import minimize
 from jsonlogger_class import JSONLogger
@@ -60,6 +60,7 @@ DATANAME = 'my_prediction_major_data_{date1}_{date2}'
 LOGPATH = 'logs/simu/'
 LOGNAME = '{date}_my_prediction_major_logs'
 
+warnings.filterwarnings('ignore')
 
 def calc_means(param_dict, homeTeam, awayTeam):
     """Calculate expected goals for home and away teams with safety checks.

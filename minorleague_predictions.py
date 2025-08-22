@@ -304,7 +304,7 @@ def resultdef(result, ht, at, divis, mdata, mtime, standings, old_df, lgdata, TH
             awaystats = awaystats.add_prefix('AT_')
             awaystats = awaystats.squeeze()
 
-            tempser = pd.Series([divis, mdata, mtime, ht, at, res, dict[res].round(2), hist_perc, '','',''])
+            tempser = pd.Series([divis, mdata, mtime, ht, at, res, dict[res].round(2), hist_perc, '','','','',''])
             tempser = pd.concat([tempser, homestats, awaystats])
             tempser = tempser.tolist()
 

@@ -272,7 +272,7 @@ def main():
             public_tg += f"• <b>{row['Match']}</b> → {row['Prediction']}\n"
 
         # Add VIP join message
-        public_tg += "\n📩 <a href='https://buy.stripe.com/bJe14nfyjfGC5A5abB63K04'>Join BetProphet.AI VIP now</a> for today’s premium picks before kick-off!\n💎Just €8/month — one winning bet covers your subscription! ✅"
+        public_tg += "\n📩 <a href='https://rebrand.ly/betprophet-m'>Join BetProphet.AI VIP now</a> for today’s premium picks before kick-off!\n💎Just €8/month — one winning bet covers your subscription! ✅"
 
         # Save Telegram text
         with open(f"{PUBLISHPATH}/Public_{date_str}.txt", "w", encoding="utf-8") as f:

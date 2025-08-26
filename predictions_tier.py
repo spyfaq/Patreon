@@ -294,7 +294,12 @@ def main():
             vip_tg += f"• <b>{row['Match']}</b> → {row['Prediction']} ({row['Prediction %']})\n"
             vip_tg += f"  <i>{row['Reasoning']}</i>\n"
 
-        df_save = df_date[["Division", "Date", "Time", "HomeTeam", "AwayTeam", "Prediction", "Prediction %", "History H2H", "HomeForm", "AwayForm", "Reasoning", "HT_Points", "HT_Matches", "HT_athome_goal_scored", "HT_athome_goal_against", "HT_athome_points", "HT_athome_wins", "HT_athome_draws", "HT_athome_loses", "AT_Points", "AT_Matches", "AT_away_goal_scored", "AT_away_goal_against", "AT_away_points", "AT_away_wins", "AT_away_draws", "AT_away_loses"]]
+        df_date["PickedforFree"] = df_date.apply(
+            lambda row: (row["Division"], row["Match"], row["Prediction"]) 
+                        in public[["Division", "Match", "Prediction"]].itertuples(index=False, name=None),
+            axis=1
+        )
+        df_save = df_date[["Division", "Date", "Time", "HomeTeam", "AwayTeam", "Prediction", "Prediction %", "History H2H", "HomeForm", "AwayForm", "Reasoning", "HT_Points", "HT_Matches", "HT_athome_goal_scored", "HT_athome_goal_against", "HT_athome_points", "HT_athome_wins", "HT_athome_draws", "HT_athome_loses", "AT_Points", "AT_Matches", "AT_away_goal_scored", "AT_away_goal_against", "AT_away_points", "AT_away_wins", "AT_away_draws", "AT_away_loses", "PickedforFree"]]
         # Telegram text, and CSV
         with open(f"{PUBLISHPATH}/VIP_{date_str}.txt", "w", encoding="utf-8") as f:
             f.write(vip_tg)

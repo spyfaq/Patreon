@@ -145,6 +145,16 @@ def match_matched(results):
 
         final_Full['Outcome'] = final_Full.apply(lambda x: define(x), axis=1)
         final_Full = final_Full[['Division', 'Date', 'HomeTeam', 'AwayTeam', 'Prediction', 'HG', 'AG', 'Outcome', 'History H2H', 'HomeForm', 'AwayForm', 'Reasoning']]
+        
+        # Check coverage
+        prop_dash = (final_Full["Outcome"] == "-").mean()
+        percent_dash = prop_dash * 100
+
+        # Check and print result
+        if prop_dash > 0.5:
+            print(f"Too many '-' ({percent_dash:.2f}%).. Skipping")
+            continue
+        
         folder = os.path.dirname(file)
         filename = os.path.basename(file)
 

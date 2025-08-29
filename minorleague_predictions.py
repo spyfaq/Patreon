@@ -7,7 +7,7 @@ import  sys, os, datetime, warnings
 from scipy.stats import poisson
 from scipy.optimize import minimize
 from jsonlogger_class import JSONLogger
-
+from collections import defaultdict
 
 """
 Running year and leagues
@@ -273,10 +273,7 @@ def resultdef(result, ht, at, divis, mdata, mtime, standings, old_df, lgdata, TH
             }
 
     outcome = pd.DataFrame(columns=["Division", "Date", "Time", "HomeTeam", "AwayTeam", "Prediction", "Prediction %", 
-                             "History %", "Outcome", "HG", "AG", "HT_Points", "HT_Matches", "HT_athome_goal_scored", 
-                             "HT_athome_goal_against", "HT_athome_points", "HT_athome_wins", "HT_athome_draws", "HT_athome_loses", 
-                             "AT_Points", "AT_Matches", "AT_away_goal_scored", "AT_away_goal_against", "AT_away_points", "AT_away_wins", 
-                             "AT_away_draws", "AT_away_loses", "HomeForm", "AwayForm"])
+                             "History %", "HomeTeam Stats", "AwayTeam Stats", "HomeForm", "AwayForm"])
     
     logger.log('info', "Calculating class history", info=str(f'{ht}-{at}'))
     hist_dict = historyfunc(path, ht, at, old_df)
@@ -289,23 +286,10 @@ def resultdef(result, ht, at, divis, mdata, mtime, standings, old_df, lgdata, TH
                 logger.log('warning', f"No history data for {ht}-{at}",)
                 hist_perc = '-'
 
-            hmcol = ['Points', 'Matches', 'athome_goal_scored', 'athome_goal_against', 'athome_points', 'athome_wins',
-                     'athome_draws', 'athome_loses', 'team']
-            homestats = standings[hmcol].loc[standings['team']==ht]
-            homestats = homestats.drop('team', axis=1)
-            homestats = homestats.add_prefix('HT_')
-            homestats=homestats.squeeze()
+            homestats = standings.loc[standings['team'] == ht, 'summary_home'].squeeze()
+            awaystats = standings.loc[standings['team'] == at, 'summary_away'].squeeze()
 
-
-            awcol = ['Points', 'Matches','away_goal_scored', 'away_goal_against', 'away_points', 'away_wins',
-                        'away_draws', 'away_loses', 'team']
-            awaystats = standings[awcol].loc[standings['team'] == at]
-            awaystats = awaystats.drop('team', axis=1)
-            awaystats = awaystats.add_prefix('AT_')
-            awaystats = awaystats.squeeze()
-
-            tempser = pd.Series([divis, mdata, mtime, ht, at, res, dict[res].round(2), hist_perc, '','','','',''])
-            tempser = pd.concat([tempser, homestats, awaystats])
+            tempser = pd.Series([divis, mdata, mtime, ht, at, res, dict[res].round(2), hist_perc, homestats, awaystats,'',''])
             tempser = tempser.tolist()
 
             outcome.loc[len(outcome)] = tempser
@@ -327,10 +311,7 @@ def resultdef(result, ht, at, divis, mdata, mtime, standings, old_df, lgdata, TH
 
             # Final result
             outcome = merged[["Division", "Date", "Time", "HomeTeam", "AwayTeam", "Prediction", "Prediction %", 
-                             "History %", "Outcome", "HG", "AG", "HT_Points", "HT_Matches", "HT_athome_goal_scored", 
-                             "HT_athome_goal_against", "HT_athome_points", "HT_athome_wins", "HT_athome_draws", "HT_athome_loses", 
-                             "AT_Points", "AT_Matches", "AT_away_goal_scored", "AT_away_goal_against", "AT_away_points", "AT_away_wins", 
-                             "AT_away_draws", "AT_away_loses", "HomeForm", "AwayForm"]]
+                             "History %", "HomeTeam Stats", "AwayTeam Stats", "HomeForm", "AwayForm"]]
 
     return(outcome)
 
@@ -593,121 +574,95 @@ def calculate_win_and_goal_form(df):
 
     return form_df
 
-def calc_standings(league_data):
-    standings = dict()
+def calc_standings(results, season=None):
+    table = defaultdict(lambda: {
+        "matches":0,"wins":0,"draws":0,"losses":0,"gf":0,"ga":0,
+        "home":{"matches":0,"wins":0,"draws":0,"losses":0,"gf":0,"ga":0},
+        "away":{"matches":0,"wins":0,"draws":0,"losses":0,"gf":0,"ga":0}
+    })
 
-    for team in league_data['HomeTeam']:
-        temp = league_data.loc[league_data['HomeTeam'] == team]['FTR'].value_counts()
-        try:
-            lose = temp['A']
-        except:
-            lose = 0
+    # Optional filter for season
+    if season is not None and "Season" in results.columns:
+        df_season = results[results["Season"] == season]
+    else:
+        df_season = results
 
-        try:
-            win = temp['H']
-        except:
-            win = 0
+    for r in df_season.itertuples(index=False):
+        hg, ag = r.HomeGoals, r.AwayGoals
+        home, away = r.HomeTeam, r.AwayTeam
 
-        try:
-            draw = temp['D']
-        except:
-            draw = 0
+        # home
+        tab = table[home]
+        tab["matches"] += 1; tab["gf"] += hg; tab["ga"] += ag
+        tab["home"]["matches"] += 1; tab["home"]["gf"] += hg; tab["home"]["ga"] += ag
+        if hg > ag:
+            tab["wins"] += 1; tab["home"]["wins"] += 1
+        elif hg == ag:
+            tab["draws"] += 1; tab["home"]["draws"] += 1
+        else:
+            tab["losses"] += 1; tab["home"]["losses"] += 1
 
-        try:
-            Standings[team].update({'Home':
-                                {'Win': win,
-                                    'Draw': draw,
-                                    'Lose': lose,
-                                    'Scored':(league_data.loc[league_data['HomeTeam'] == team]['HomeGoals']).sum(),
-                                    'Eaten':(league_data.loc[league_data['HomeTeam'] == team]['AwayGoals']).sum(),
-                                    'Points': (win * 3) + draw,
-                                    }
-                            })
-        except KeyError:
-            Standings[team] = {'Home':
-                                {'Win': win,
-                                    'Draw': draw,
-                                    'Lose': lose,
-                                    'Scored':(league_data.loc[league_data['HomeTeam'] == team]['HomeGoals']).sum(),
-                                    'Eaten':(league_data.loc[league_data['HomeTeam'] == team]['AwayGoals']).sum(),
-                                    'Points': (win * 3) + draw,
-                                    'Matches': win + draw + lose
-                                    }
-                            }            
+        # away
+        tab = table[away]
+        tab["matches"] += 1; tab["gf"] += ag; tab["ga"] += hg
+        tab["away"]["matches"] += 1; tab["away"]["gf"] += ag; tab["away"]["ga"] += hg
+        if ag > hg:
+            tab["wins"] += 1; tab["away"]["wins"] += 1
+        elif ag == hg:
+            tab["draws"] += 1; tab["away"]["draws"] += 1
+        else:
+            tab["losses"] += 1; tab["away"]["losses"] += 1
 
-    for team in league_data['AwayTeam'] :
-        temp = league_data.loc[league_data['AwayTeam'] == team]['FTR'].value_counts()
-        try:
-            lose = temp['H']
-        except:
-            lose = 0
+    # Build DataFrame with both detailed and summary columns
+    rows = []
+    for team_name, stats in table.items():
+        matches = stats["matches"]
+        gf, ga = stats["gf"], stats["ga"]
+        points = stats["wins"]*3 + stats["draws"]
 
-        try:
-            win = temp['A']
-        except:
-            win = 0
+        home, away = stats["home"], stats["away"]
 
-        try:
-            draw = temp['D']
-        except:
-            draw = 0
+        # averages
+        avg_gf = gf / matches if matches else 0
+        avg_ga = ga / matches if matches else 0
+        home_avg_gf = home["gf"] / home["matches"] if home["matches"] else 0
+        home_avg_ga = home["ga"] / home["matches"] if home["matches"] else 0
+        away_avg_gf = away["gf"] / away["matches"] if away["matches"] else 0
+        away_avg_ga = away["ga"] / away["matches"] if away["matches"] else 0
 
-        try:
-            Standings[team].update({'Away':
-                                {'Win': win,
-                                    'Draw': draw,
-                                    'Lose': lose,
-                                    'Scored':(league_data.loc[league_data['AwayTeam'] == team]['AwayGoals']).sum(),
-                                    'Eaten': (league_data.loc[league_data['AwayTeam'] == team]['HomeGoals']).sum(),
-                                    'Points': (win * 3) + draw
-                                    }
-                            })
-        except KeyError:
-            Standings[team] = {'Away':
-                                {'Win': win,
-                                    'Draw': draw,
-                                    'Lose': lose,
-                                    'Scored':(league_data.loc[league_data['AwayTeam'] == team]['AwayGoals']).sum(),
-                                    'Eaten': (league_data.loc[league_data['AwayTeam'] == team]['HomeGoals']).sum(),
-                                    'Points': (win * 3) + draw,
-                                    'Matches': win + draw + lose
-                                    }
-                            }   
+        rows.append({
+            "team": team_name,
+            "Points": points,
+            "Matches": matches,
+            # home
+            "athome_goal_scored": home["gf"],
+            "athome_goal_against": home["ga"],
+            "athome_points": home["wins"]*3 + home["draws"],
+            "athome_wins": home["wins"],
+            "athome_draws": home["draws"],
+            "athome_loses": home["losses"],
+            # away
+            "away_goal_scored": away["gf"],
+            "away_goal_against": away["ga"],
+            "away_points": away["wins"]*3 + away["draws"],
+            "away_wins": away["wins"],
+            "away_draws": away["draws"],
+            "away_loses": away["losses"],
+            # summaries
+            "summary_home": f'{matches}M {stats["wins"]}W {stats["draws"]}D {stats["losses"]}L '
+                            f'{gf}-{ga} ({avg_gf:.1f}-{avg_ga:.1f}) | '
+                            f'Home: {home["matches"]}M {home["wins"]}W {home["draws"]}D {home["losses"]}L '
+                            f'{home["gf"]}-{home["ga"]} ({home_avg_gf:.1f}-{home_avg_ga:.1f})',
+            "summary_away": f'{matches}M {stats["wins"]}W {stats["draws"]}D {stats["losses"]}L '
+                            f'{gf}-{ga} ({avg_gf:.1f}-{avg_ga:.1f}) | '
+                            f'Away: {away["matches"]}M {away["wins"]}W {away["draws"]}D {away["losses"]}L '
+                            f'{away["gf"]}-{away["ga"]} ({away_avg_gf:.1f}-{away_avg_ga:.1f})'
+        })
 
-    for team in Standings.keys():
-        Standings[team].update({'Sum':
-                                    {
-                                    'Win': Standings[team].get('Home',{}).get('Win', 0) + Standings[team].get('Away',{}).get('Win', 0),
-                                    'Draw': Standings[team].get('Home',{}).get('Draw', 0) + Standings[team].get('Away',{}).get('Draw', 0),
-                                    'Lose': Standings[team].get('Home',{}).get('Lose', 0) + Standings[team].get('Away',{}).get('Lose', 0),
-                                    'Scored': Standings[team].get('Home',{}).get('Scored', 0) + Standings[team].get('Away',{}).get('Scored', 0),
-                                    'Eaten': Standings[team].get('Home',{}).get('Eaten', 0) + Standings[team].get('Away',{}).get('Eaten', 0),
-                                    'Points': Standings[team].get('Home',{}).get('Points', 0) + Standings[team].get('Away',{}).get('Points', 0)
-                                    }
-                                })
-
-        standings[team] = { 'Points': Standings[team]['Sum']['Points'],
-                            'Matches': (Standings[team].get('Home',{}).get('Win', 0) + Standings[team].get('Home',{}).get('Draw', 0) + Standings[team].get('Home',{}).get('Lose', 0) +
-                                        Standings[team].get('Away',{}).get('Win', 0) + Standings[team].get('Away',{}).get('Draw', 0) + Standings[team].get('Away',{}).get('Lose', 0)),
-                            'athome_goal_scored': Standings[team].get('Home',{}).get('Scored', 0),
-                            'athome_goal_against': Standings[team].get('Home',{}).get('Eaten', 0),
-                            'athome_points': Standings[team].get('Home',{}).get('Points', 0),
-                            'athome_wins': Standings[team].get('Home',{}).get('Win', 0),
-                            'athome_draws': Standings[team].get('Home',{}).get('Draw', 0),
-                            'athome_loses': Standings[team].get('Home',{}).get('Lose', 0),
-                            'away_goal_scored': Standings[team].get('Away',{}).get('Scored', 0),
-                            'away_goal_against': Standings[team].get('Away',{}).get('Eaten', 0),
-                            'away_points': Standings[team].get('Away',{}).get('Points', 0),
-                            'away_wins': Standings[team].get('Away',{}).get('Win', 0),
-                            'away_draws': Standings[team].get('Away',{}).get('Draw', 0),
-                            'away_loses': Standings[team].get('Away',{}).get('Lose', 0)
-                        }
-
-    temp = pd.DataFrame(standings)
-    standings_df = temp.transpose()
-    standings_df.sort_values(['Points'], inplace=True, ascending=False)
-    standings_df['team']=standings_df.index
-    return(standings_df)
+    standings = pd.DataFrame(rows)
+    standings.sort_values(["Points","athome_goal_scored","away_goal_scored"], ascending=[False,False,False], inplace=True)
+    standings.reset_index(drop=True, inplace=True)
+    return standings
 
 if __name__ == '__main__':
     os.chdir(os.path.dirname(__file__))

@@ -4,7 +4,7 @@
 import numpy as np
 import pandas as pd
 from datetime import datetime, timedelta
-import datetime, os
+import datetime, os, re
 from jsonlogger_class import JSONLogger
 from openpyxl import load_workbook
 from openpyxl.worksheet.table import Table, TableStyleInfo
@@ -127,26 +127,70 @@ def get_color(val):
             return "background-color: #ffc7ce"
     return ""
 
+def parse_summary(summary: str):
+    parts = summary.split("|")
+    segment = parts[1].strip() if len(parts) > 1 else parts[0].strip()
+
+    m = re.search(r"(\d+)M (\d+)W (\d+)D (\d+)L", segment)
+    matches, wins, draws, losses = map(int, m.groups())
+
+    g = re.search(r"(\d+)-(\d+)", segment)
+    gf, ga = map(int, g.groups())
+
+    a = re.search(r"\(([\d.]+)-([\d.]+)\)", segment)
+    avg_gf, avg_ga = map(float, a.groups())
+
+    return {
+            "matches": matches, "wins": wins, "draws": draws, "losses": losses,
+            "gf": gf, "ga": ga, "avg_gf": avg_gf, "avg_ga": avg_ga
+        }
+
+def parse_form(form_str: str):
+    if type(form_str) == float:
+        return {}
+    form = form_str.replace("-", "")  # remove unused slots
+    total = len(form)
+    wins = form.count("W")
+    draws = form.count("D")
+    losses = form.count("L")
+    overs = form.count("O")
+    unders = form.count("U")
+    return {
+        "form": form,
+        "wins": wins, "draws": draws, "losses": losses,
+        "overs": overs, "unders": unders,
+        "total": total
+    }
+
+
 def generate_reasoning(row):
     pred = row["Prediction"]
-    
+
+    home_stats = parse_summary(row["HomeTeam Stats"])
+    away_stats = parse_summary(row["AwayTeam Stats"])
+
+    home_form = parse_form(row["HomeForm"])
+    away_form = parse_form(row["AwayForm"])
+
     # Core stats (fixed away goals bug)
-    home_form = f"{row['HomeTeam']} has won {row['HT_athome_wins']} of their last {row['HT_athome_wins'] + row['HT_athome_draws'] + row['HT_athome_loses']} home games."
-    away_form = f"{row['AwayTeam']} has won {row['AT_away_wins']} of {row['AT_away_wins'] + row['AT_away_draws'] + row['AT_away_loses']} away games."
-    home_goals = f"{row['HomeTeam']} averages {(row['HT_athome_goal_scored'] / (row['HT_athome_wins'] + row['HT_athome_draws'] + row['HT_athome_loses'])):.1f} goals at home."
-    away_goals = f"{row['AwayTeam']} averages {(row['AT_away_goal_scored'] / (row['AT_away_wins'] + row['AT_away_draws'] + row['AT_away_loses'])):.1f} goals away."
-    home_concede = f"{row['HomeTeam']} concedes {(row['HT_athome_goal_against'] / (row['HT_athome_wins'] + row['HT_athome_draws'] + row['HT_athome_loses'])):.1f} goals at home."
-    away_concede = f"{row['AwayTeam']} concedes {(row['AT_away_goal_against'] / (row['AT_away_wins'] + row['AT_away_draws'] + row['AT_away_loses'])):.1f} goals away."
+    if pred != "Both Teams to Score":
+        home_1 = f"{row['HomeTeam']} has won {home_form['wins']} of their last {home_form['total']} home games."
+        away_2 = f"{row['AwayTeam']} has won {away_form['wins']} of their last {away_form['total']} home games."
+
+    home_goals = f"{row['HomeTeam']} averages {(home_stats['avg_gf']):.1f} goals at home."
+    away_goals = f"{row['AwayTeam']} averages {(away_stats['avg_gf']):.1f} goals at away."
+    home_concede = f"{row['HomeTeam']} concedes {(home_stats['avg_ga']):.1f} goals at home."
+    away_concede = f"{row['AwayTeam']} concedes {(away_stats['avg_ga']):.1f} goals at away."
 
     # Reasoning per prediction code
     if pred == "Home Win":
-        reasoning = f"{home_form} {away_form} {away_concede} Strong home record supports this."
+        reasoning = f"{home_1} {away_2} {away_concede} Strong home record supports this."
     elif pred == "Away Win":
-        reasoning = f"{away_form} {home_form} {home_concede} Away form makes them favourites."
+        reasoning = f"{away_2} {home_1} {home_concede} Away form makes them favourites."
     elif pred == "Both Teams to Score":
         reasoning = f"{home_goals} {away_goals} Both teams tend to concede ({home_concede}, {away_concede}), making goals at both ends likely."
     elif pred == "Draw":
-        reasoning = f"Balanced recent form: {home_form} {away_form} A draw is a strong possibility."
+        reasoning = f"Balanced recent form: {home_1} {away_2} A draw is a strong possibility."
     elif "Home team Over" in pred:
         reasoning = f"{home_goals} {away_concede} The home side’s attack should produce the required goals."
     elif "Away team Over" in pred:
@@ -299,7 +343,7 @@ def main():
                         in public[["Division", "Match", "Prediction"]].itertuples(index=False, name=None),
             axis=1
         )
-        df_save = df_date[["Division", "Date", "Time", "HomeTeam", "AwayTeam", "Prediction", "Prediction %", "History H2H", "HomeForm", "AwayForm", "Reasoning", "HT_Points", "HT_Matches", "HT_athome_goal_scored", "HT_athome_goal_against", "HT_athome_points", "HT_athome_wins", "HT_athome_draws", "HT_athome_loses", "AT_Points", "AT_Matches", "AT_away_goal_scored", "AT_away_goal_against", "AT_away_points", "AT_away_wins", "AT_away_draws", "AT_away_loses", "PickedforFree"]]
+        df_save = df_date[["Division", "Date", "Time", "HomeTeam", "AwayTeam", "Prediction", "Prediction %", "History H2H", "HomeForm", "AwayForm", "Reasoning", "HomeTeam Stats", "AwayTeam Stats", "PickedforFree"]]
         # Telegram text, and CSV
         with open(f"{PUBLISHPATH}/VIP_{date_str}.txt", "w", encoding="utf-8") as f:
             f.write(vip_tg)
@@ -316,7 +360,4 @@ if __name__ == '__main__':
     LOGNAME = LOGNAME.replace('{date}', datesave) + '.json'
     logger = JSONLogger(log_file=LOGNAME, log_dir=LOGPATH)
 
-    try:
-        main()
-    except Exception as e:
-        logger.log('critical', "Exception occured whie running", info=str(e))
+    main()

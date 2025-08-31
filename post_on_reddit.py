@@ -79,8 +79,7 @@ def build_post(predictions_text):
     body = "Here are today’s top 3 free predictions with reasoning:\n\n"
     body += predictions_text
     body += "\n\n---\n"
-    body += "✅ I post 3 free predictions daily on Telegram → [Join here](https://t.me/BetProphetAIFreePicks)\n"
-    body += "🔥 Full VIP predictions with higher odds also available."
+    body += "Want more insights? \nFull VIP predictions and detailed analysis are available in the channel 📲!"
     return title, body
 
 def main():

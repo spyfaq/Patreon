@@ -1,4 +1,4 @@
-name: Daily Telegram Post from Dropbox
+name: Daily Reddit Post from Dropbox
 
 on:
   schedule:
@@ -20,7 +20,7 @@ jobs:
           python-version: "3.10"
 
       - name: Install dependencies
-        run: pip install datetime, requests, os, praw, re
+        run: pip install requests praw
       
       - name: Install jq
         run: sudo apt-get update && sudo apt-get install -y jq

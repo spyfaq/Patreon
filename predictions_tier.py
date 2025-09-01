@@ -311,7 +311,7 @@ def main():
         n_samples = min(3, len(top_picks))
         public = top_picks[["Division", "Match", "Prediction"]].head(5).sample(n=n_samples, random_state=1)
         # Telegram-friendly public list
-        public_tg = f"📊 <b>Basic Picks — {date_str}</b>\n\n"
+        public_tg = f"📊 <b>Free Picks — {date_str}</b>\n\n"
         for _, row in public.iterrows():
             public_tg += f"• <b>{row['Match']}</b> → {row['Prediction']}\n"
 

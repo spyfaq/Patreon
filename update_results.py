@@ -147,12 +147,13 @@ def match_matched(results):
         final_Full = final_Full[['Division', 'Date', 'HomeTeam', 'AwayTeam', 'Prediction', 'HG', 'AG', 'Outcome', 'History H2H', 'HomeForm', 'AwayForm', 'Reasoning']]
         
         # Check coverage
-        prop_dash = (final_Full["Outcome"] == "-").mean()
-        percent_dash = prop_dash * 100
+        true_false_count = final_Full['Outcome'].isin(['TRUE', 'FALSE']).sum()
+        total_count = len(final_Full)
+        percent_dash = (true_false_count / total_count)*100
 
         # Check and print result
-        if prop_dash > 0.5:
-            print(f"Too many '-' ({percent_dash:.2f}%).. Skipping")
+        if percent_dash < 90:
+            print(f"Too many '-' ({percent_dash:.2f}%).. Skipping {file}")
             continue
         
         folder = os.path.dirname(file)
@@ -162,6 +163,8 @@ def match_matched(results):
         new_filename = "update_" + filename
         new_path = os.path.join(folder, new_filename)
         final_Full.to_excel(new_path, index=False, sheet_name="Sheet1")
+
+        os.remove(os.path.join(folder, filename))
 
 if __name__ == '__main__':
     datesave = datetime.date.today().strftime('%Y%m%d')

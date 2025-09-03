@@ -16,7 +16,7 @@ REDDIT_USER_AGENT = "BetProphetAI: v1.0 (by u/BetProphetAI)"
 
 
 # Target subreddit(s)
-SUBREDDITS = ["SoccerBetting", "Sportsbook", "BettingPicks", "Betting", "FixedMatches"]  
+SUBREDDITS = ["SoccerBetting", "Sportsbook", "BettingPicks", "sportsbetting", "FixedMatches"]  
 
 # Dropbox folder path
 DROPBOX_FOLDER = "/telegram_content"

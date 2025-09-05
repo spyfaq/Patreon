@@ -68,7 +68,7 @@ def accumulate_data(majorfile, minorfile):
             else:
                 latest_df = pd.read_csv(minorfile)
 
-            logger.log('warning', f'Didnt match major n minor league files.. Keeping last file', info=latest_df.Name)
+            logger.log('warning', f'Didnt match major n minor league files.. Keeping last file', info=latest_df)
             return latest_df
     else:
         if '99999999' in majorfile: 

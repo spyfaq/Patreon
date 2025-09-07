@@ -150,7 +150,7 @@ def post_to_patreon(title, body, IS_VIP=False, file=None):
 
 def main():
     files = list_dropbox_files()
-    public,  = load_file('Public', files)
+    public, txt = load_file('Public', files)
     vip, csv = load_file('VIP', files)
 
     publictitle, publicbody = html_to_markdown(public)

@@ -1,4 +1,4 @@
-name: Daily Reddit Post
+name: Daily Patreon Post
 
 on:
   schedule:
@@ -20,7 +20,7 @@ jobs:
           python-version: "3.10"
 
       - name: Install dependencies
-        run: pip install requests praw
+        run: pip install requests selenium
       
       - name: Install jq
         run: sudo apt-get update && sudo apt-get install -y jq
@@ -40,7 +40,6 @@ jobs:
           
       - name: Run posting script
         env:
-          REDDIT_CLIENT_ID: ${{ secrets.REDDIT_CLIENT_ID }}
-          REDDIT_CLIENT_SECRET: ${{ secrets.REDDIT_CLIENT_SECRET }}
-          REDDIT_PASSWORD: ${{ secrets.REDDIT_PASSWORD }}
-        run: python post_on_reddit.py
+          EMAIL: ${{ secrets.PATREON_EMAIL }}
+          PASSWORD: ${{ secrets.PATREON_PASSWORD }}
+        run: python post_on_patreon.py

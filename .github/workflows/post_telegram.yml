@@ -1,4 +1,4 @@
-name: Daily Telegram Post from Dropbox
+name: Daily Telegram Post
 
 on:
   schedule:

@@ -10,13 +10,13 @@ DROPBOX_TOKEN = os.environ["DROPBOX_ACCESS_TOKEN"]
 #  Reddit API credentials
 REDDIT_CLIENT_ID = os.environ["REDDIT_CLIENT_ID"]
 REDDIT_CLIENT_SECRET = os.environ["REDDIT_CLIENT_SECRET"]
-REDDIT_USERNAME = "CommercialPrompt4477"
+REDDIT_USERNAME = "betprophet-AI"
 REDDIT_PASSWORD = os.environ["REDDIT_PASSWORD"]
 REDDIT_USER_AGENT = "BetProphetAI: v1.0 (by u/BetProphetAI)"
 
 
 # Target subreddit(s)
-SUBREDDITS = ["SoccerBetting", "Sportsbook", "BettingPicks", "Betting", "FixedMatches"]  
+SUBREDDITS = ["SoccerBetting", "Sportsbook", "BettingPicks", "sportsbetting", "FixedMatches"]  
 
 # Dropbox folder path
 DROPBOX_FOLDER = "/telegram_content"

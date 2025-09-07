@@ -53,7 +53,7 @@ def accumulate_data(majorfile, minorfile):
         minor_end_date = str_to_date(minor_dates[1])
 
         # Check if dates are within 1 day
-        if abs((major_start_date - minor_start_date).days) <= 1:
+        if (abs((major_start_date - minor_start_date).days) <= 1 or abs((major_end_date - minor_end_date).days) <= 1):
             major_df = pd.read_csv(majorfile)
             minor_df = pd.read_csv(minorfile)
         
@@ -68,7 +68,7 @@ def accumulate_data(majorfile, minorfile):
             else:
                 latest_df = pd.read_csv(minorfile)
 
-            logger.log('warning', f'Didnt match major n minor league files.. Keeping last file', info=latest_df.Name)
+            logger.log('warning', f'Didnt match major n minor league files.. Keeping last file', info=latest_df)
             return latest_df
     else:
         if '99999999' in majorfile: 

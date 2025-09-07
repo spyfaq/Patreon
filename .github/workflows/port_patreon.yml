@@ -41,5 +41,5 @@ jobs:
       - name: Run posting script
         env:
           EMAIL: ${{ secrets.PATREON_EMAIL }}
-          PASSWORD: ${{ secrets.PATREON_PASSWORD }}
+          PASSWORD: ${{ secrets.PATREON_PASS }}
         run: python post_on_patreon.py

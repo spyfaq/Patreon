@@ -176,11 +176,12 @@ def type_in_prosemirror(driver, text, editor_selector="div.ProseMirror"):
 
 def post_to_patreon(title, body, IS_VIP=False, file=None):
     chrome_options = Options()
-    #chrome_options.add_argument("--headless=new")
+    chrome_options.add_argument("--headless=new")
     temp_profile = tempfile.mkdtemp()
     chrome_options.add_argument(f"--user-data-dir={temp_profile}")
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
+    chrome_options.add_argument("--disable-gpu")
     
     #driver = webdriver.Chrome(executable_path="misc\chromedriver.exe", options=chrome_options)
     driver = webdriver.Chrome(options=chrome_options)

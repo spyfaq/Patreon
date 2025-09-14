@@ -6,8 +6,6 @@ from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.action_chains import ActionChains
 #from dotenv import load_dotenv
 warnings.filterwarnings('ignore')
@@ -102,9 +100,8 @@ def handle_cookie_banner(driver):
     print(f'Closing cookies..')
     try:
         # Try clicking Reject non-essential
-        reject_btn = WebDriverWait(driver, 5).until(
-            EC.element_to_be_clickable((By.XPATH, "//button[.//span[text()='Reject non-essential']]"))
-        )
+        time.sleep(5)
+        reject_btn = driver.find_element(By.XPATH, "//button[.//span[text()='Reject non-essential']]")
         reject_btn.click()
         print("Rejected cookies")
     except:
@@ -118,9 +115,8 @@ def handle_cookie_banner(driver):
 def close_optional_dialog(driver):
     print(f'Closing popup dialog..')
     try:
-        close_btn = WebDriverWait(driver, 5).until(
-            EC.element_to_be_clickable((By.XPATH, "//button[@aria-label='Close Dialog']"))
-        )
+        time.sleep(5)
+        close_btn =  driver.find_element(By.XPATH, "//button[@aria-label='Close Dialog']")
         close_btn.click()
         print("Dialog closed")
     except Exception as e:
@@ -143,9 +139,8 @@ def post_dialog(driver):
     print(f'Closing post dialog..')
     try:
         # Wait for the close button to be clickable
-        close_button = WebDriverWait(driver, 10).until(
-            EC.element_to_be_clickable((By.CSS_SELECTOR, 'button[data-tag="dialog-close-icon"]'))
-        )
+        time.sleep(5)
+        close_button = driver.find_element(By.CSS_SELECTOR, 'button[data-tag="dialog-close-icon"]')
         close_button.click()
         print("Dialog closed successfully")
     except Exception as e:
@@ -192,16 +187,13 @@ def post_to_patreon(title, body, IS_VIP=False, file=None):
         time.sleep(5)
 
         handle_cookie_banner(driver)
-        
-        email_input = WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.XPATH, "//input[@aria-label='Email']"))
-        )
+        time.sleep(10)
+        email_input = driver.find_element(By.XPATH, "//input[@aria-label='Email']")
+
         email_input.send_keys(EMAIL)
         email_input.send_keys(Keys.RETURN)
-
-        password_input = WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.XPATH, "//input[@aria-label='Password']"))
-        )
+        time.sleep(10)
+        password_input = driver.find_element(By.XPATH, "//input[@aria-label='Password']")
         time.sleep(5)
         password_input.send_keys(PASSWORD)
         password_input.send_keys(Keys.RETURN)
@@ -221,9 +213,8 @@ def post_to_patreon(title, body, IS_VIP=False, file=None):
         print(f'Writting post..')
         body = body.replace("Reasoning for Top 5:", " \n 💡 Reasoning for Predictions:")
         lines = body.split("\n") 
-        body_editor = WebDriverWait(driver, 20).until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, "div.ProseMirror.remirror-editor"))
-        )
+        time.sleep(20)      
+        body_editor = driver.find_element(By.CSS_SELECTOR, "div.ProseMirror.remirror-editor")
         js_append_lines = """
             let editor = arguments[0];
             let lines = arguments[1];

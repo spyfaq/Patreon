@@ -7,9 +7,12 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.action_chains import ActionChains
-#from dotenv import load_dotenv
+
 warnings.filterwarnings('ignore')
+
+#from dotenv import load_dotenv
 #load_dotenv()
+
 #  Dropbox  API credentials
 DROPBOX_TOKEN = os.environ["DROPBOX_ACCESS_TOKEN"]
 
@@ -177,9 +180,11 @@ def post_to_patreon(title, body, IS_VIP=False, file=None):
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
     chrome_options.add_argument("--disable-gpu")
+    chrome_options.add_argument("--window-size=1920,1080")
     
     #driver = webdriver.Chrome(executable_path="misc\chromedriver.exe", options=chrome_options)
     driver = webdriver.Chrome(options=chrome_options)
+    
     try:
         print(f'Login to Patreon..')
         # Login

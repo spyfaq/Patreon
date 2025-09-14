@@ -189,15 +189,10 @@ def post_to_patreon(title, body, IS_VIP=False, file=None):
         print(f'Login to Patreon..')
         # Login
         driver.get("https://www.patreon.com/login")
-        time.sleep(5)
+        time.sleep(60)
 
         handle_cookie_banner(driver)
         time.sleep(10)
-
-        #debuger
-        driver.save_screenshot("/tmp/screenshot.png")
-        with open("/tmp/page.html", "w", encoding="utf-8") as f:
-            f.write(driver.page_source)
 
         email_input = driver.find_element(By.XPATH, "//input[@aria-label='Email']")
 

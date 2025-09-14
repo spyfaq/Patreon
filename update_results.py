@@ -144,7 +144,7 @@ def match_matched(results):
 
 
         final_Full['Outcome'] = final_Full.apply(lambda x: define(x), axis=1)
-        final_Full = final_Full[['Division', 'Date', 'HomeTeam', 'AwayTeam', 'Prediction', 'HG', 'AG', 'Outcome', 'History H2H', 'HomeForm', 'AwayForm', 'Reasoning']]
+        final_Full = final_Full[['Division', 'Date', 'HomeTeam', 'AwayTeam', 'Prediction', 'HG', 'AG', 'Outcome', 'History H2H', 'HomeForm', 'AwayForm', 'Reasoning', 'PickedforFree']]
         
         # Check coverage
         true_false_count = final_Full['Outcome'].isin(['TRUE', 'FALSE']).sum()

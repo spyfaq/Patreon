@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-import os, datetime, requests, re, time, warnings
+import os, datetime, requests, re, time, warnings, pyperclip
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
@@ -9,9 +9,9 @@ from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.action_chains import ActionChains
-
+#from dotenv import load_dotenv
 warnings.filterwarnings('ignore')
-
+#load_dotenv()
 #  Dropbox  API credentials
 DROPBOX_TOKEN = os.environ["DROPBOX_ACCESS_TOKEN"]
 
@@ -78,7 +78,7 @@ def html_to_markdown(text: str) -> str:
 
     # Remove common promo/subscription lines (VIP join, prices, etc.)
     text = re.sub(r"📩.*?\n", "", text)
-    text = re.sub(r"💎Just.*?\n", "", text)
+    text = re.sub(r"💎Just €8.*", "", text, flags=re.DOTALL)
 
     # Remove bold/italic tags completely
     text = re.sub(r"<b>(.*?)</b>", r"\1", text, flags=re.DOTALL)
@@ -180,11 +180,11 @@ def post_to_patreon(title, body, IS_VIP=False, file=None):
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
     
+    #driver = webdriver.Chrome(executable_path="misc\chromedriver.exe", options=chrome_options)
     driver = webdriver.Chrome(options=chrome_options)
-
     try:
         print(f'Login to Patreon..')
-        # 1. Login
+        # Login
         driver.get("https://www.patreon.com/login")
         time.sleep(5)
 
@@ -205,7 +205,7 @@ def post_to_patreon(title, body, IS_VIP=False, file=None):
 
         time.sleep(5)
 
-        # 2. Go to create post
+        # Go to create post
         print(f'Redirect to post page..')
         driver.get("https://www.patreon.com/posts/new?postType=text_only")
         time.sleep(5)
@@ -214,16 +214,8 @@ def post_to_patreon(title, body, IS_VIP=False, file=None):
         time.sleep(5)
        
 
-        # 3. Fill in title
+        # Post Content
         print(f'Writting post..')
-        title_box = driver.find_element(By.XPATH, "//textarea[@aria-label='Title']")
-        driver.execute_script("""
-                            arguments[0].value = arguments[1];
-                            arguments[0].dispatchEvent(new Event('input', { bubbles: true }));
-                            """, title_box, title)
-        time.sleep(1)
-
-        # 4. Fill in body
         body = body.replace("Reasoning for Top 5:", " \n 💡 Reasoning for Predictions:")
         lines = body.split("\n") 
         body_editor = WebDriverWait(driver, 20).until(
@@ -246,10 +238,10 @@ def post_to_patreon(title, body, IS_VIP=False, file=None):
             editor.dispatchEvent(new Event('input', { bubbles: true }));
             """
         driver.execute_script(js_append_lines, body_editor, lines)
-        
         time.sleep(1)
 
-        # 5. Set audience (Free or Patrons only)
+
+        # Set audience (Free or Patrons only)
         print(f'Setting audience..')
         if IS_VIP:
             #Upload attachment
@@ -261,12 +253,25 @@ def post_to_patreon(title, body, IS_VIP=False, file=None):
             audience_btn = driver.find_element(By.XPATH, "//button[contains(., 'Patrons only')]")
             audience_btn.click()
             time.sleep(1)
+        else:
+            radio_btn = driver.find_element(By.XPATH, "//input[@type='radio' and @value='public']")
+            radio_btn.click()
+
+        # Need to write title at the end so react doesnt clear it
+        title_box = driver.find_element(By.XPATH, "//textarea[@aria-label='Title']")
+        pyperclip.copy(title)
+
+        title_box.click()
+        title_box.clear()
+        time.sleep(0.2)
+
+        title_box.send_keys(Keys.CONTROL, 'v')
 
         # 6. Publish
         print(f'Publishing..')
-        publish_btn = driver.find_element(By.XPATH, "//button[contains(., 'Publish now')]")
+        publish_btn = driver.find_element(By.XPATH, '//button[@data-tag="make-a-post-action-publish"]')
         publish_btn.click()
-        time.sleep(5)
+        time.sleep(3)
 
         if IS_VIP:
             print(f"✅ Post created via Selenium for VIP")

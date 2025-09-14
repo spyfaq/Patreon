@@ -9,3 +9,4 @@
 /old scripts
 init.cfg
 /.githubvenv
+.env

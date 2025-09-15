@@ -68,7 +68,7 @@ async def post_to_patreon(title, body, IS_VIP=False, file=None):
     print(f'Launching Playwright..')
     async with async_playwright() as p:
         browser = await p.chromium.launch(
-            headless=True,
+            headless=False,
             args=[
                 "--no-sandbox",
                 "--disable-setuid-sandbox",

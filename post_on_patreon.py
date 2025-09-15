@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-import os, datetime, requests, re, warnings, asyncio, time
+import os, datetime, requests, re, warnings, asyncio, time, json
 from playwright.async_api import async_playwright
 
 warnings.filterwarnings('ignore')
@@ -16,6 +16,9 @@ PASSWORD = os.getenv("PATREON_PASS")
 # Dropbox folder path
 DROPBOX_FOLDER = "/telegram_content"
 today_str = datetime.date.today().strftime("%Y-%m-%d")
+
+cookies_json = os.environ["PATREON_COOKIES"]
+COOKIES = json.loads(cookies_json)
 
 def list_dropbox_files():
     print('Collecting Dropbox files..')
@@ -79,9 +82,12 @@ async def post_to_patreon(title, body, IS_VIP=False, file=None):
             ]
         )
         context = await browser.new_context(record_video_dir="videos/")
+        await context.add_cookies(COOKIES)
         page = await context.new_page()
 
         try:
+            """
+            no need as we use cookies
             print("Login to Patreon..")
             await page.goto("https://www.patreon.com/login", timeout=60000)
 
@@ -95,9 +101,10 @@ async def post_to_patreon(title, body, IS_VIP=False, file=None):
             await page.keyboard.press("Enter")
 
             await page.wait_for_timeout(5000)
-
+            """
             # Navigate to new post page
-            
+            # save local storage (if needed)
+            #storage = await context.storage_state(path="storage_state.json")
             print(f'Redirect to post page..')
             await page.goto("https://www.patreon.com/posts/new?postType=text_only", timeout=60000)
 

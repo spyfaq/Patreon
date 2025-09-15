@@ -50,6 +50,7 @@ jobs:
         env:
           EMAIL: ${{ secrets.PATREON_EMAIL }}
           PASSWORD: ${{ secrets.PATREON_PASS }}
+          PATREON_COOKIES: ${{ secrets.PATREON_COOKIES }}
         run: xvfb-run -a python post_on_patreon.py
       
       - name: Upload Playwright video

@@ -82,7 +82,7 @@ async def post_to_patreon(title, body, IS_VIP=False, file=None):
         page = await context.new_page()
 
         print("Login to Patreon..")
-        await page.goto("https://www.patreon.com/login", wait_until="networkidle", timeout=60000)
+        await page.goto("https://www.patreon.com/login", timeout=60000)
 
         # Login
         await page.wait_for_selector("input[type='email']", timeout=30000)

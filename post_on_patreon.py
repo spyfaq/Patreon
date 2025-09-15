@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-import os, datetime, requests, re, warnings, asyncio, time, json
+import os, datetime, requests, re, warnings, asyncio, time
 from playwright.async_api import async_playwright
 
 warnings.filterwarnings('ignore')
@@ -16,9 +16,6 @@ PASSWORD = os.getenv("PATREON_PASS")
 # Dropbox folder path
 DROPBOX_FOLDER = "/telegram_content"
 today_str = datetime.date.today().strftime("%Y-%m-%d")
-
-cookies_json = os.environ["PATREON_COOKIES"]
-COOKIES = json.loads(cookies_json)
 
 def list_dropbox_files():
     print('Collecting Dropbox files..')
@@ -81,8 +78,7 @@ async def post_to_patreon(title, body, IS_VIP=False, file=None):
                 "--disable-blink-features=AutomationControlled",
             ]
         )
-        context = await browser.new_context(record_video_dir="videos/")
-        await context.add_cookies(COOKIES)
+        context = await browser.new_context(storage_state="storage_state.json", record_video_dir="videos/")
         page = await context.new_page()
 
         try:

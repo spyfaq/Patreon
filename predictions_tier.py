@@ -224,7 +224,31 @@ def parse_hist(s):
         return v * 100 if v <= 1 else v
     except Exception:
         return np.nan
-    
+
+def advance_sorting(top_picks):
+    df = top_picks.copy()  # use your already-filtered top_picks
+
+    # priority: 1 = special (Pred>80 & Hist is NaN), 2 = normal (Hist not NaN), 3 = other (Hist NaN but Pred <= 80)
+    df['priority'] = np.where(
+        (df['PredValue'] > 80) & (df['HistValue'].isna()), 1,
+        np.where(df['HistValue'].notna(), 2, 3)
+    )
+
+    # create a sort-friendly Hist column (fill remaining NaNs with -1 so they sort last)
+    df['Hist_for_sort'] = df['HistValue'].fillna(-1)
+
+    # sort by priority (asc), PredValue (desc), Hist_for_sort (desc)
+    df_sorted = df.sort_values(
+        by=['priority', 'PredValue', 'Hist_for_sort'],
+        ascending=[True, False, False]
+    )
+
+    # keep only one row per match (best by the sorting) and take top 10
+    vip = df_sorted.drop_duplicates(subset='Match', keep='first').head(10).drop(
+        columns=['priority', 'Hist_for_sort']
+    )
+    return vip[["Division", "Match", "Prediction", "Confidence", "Prediction %", "History H2H", 'Reasoning']]
+
 def main():
     filename = newest_predictions()
     
@@ -293,10 +317,12 @@ def main():
         # Add reasoning column (for Tier 3)
         df_date["Reasoning"] = df_date.apply(generate_reasoning, axis=1)
 
-        # Filter: Prediction ≥ 80% and History ≥ 70%
-        top_picks = df_date[
-            (df_date["PredValue"] >= 64) &
-            (df_date["HistValue"] >= 64)
+        # Filter: Prediction ≥ 64% and History ≥ 50% or Prediction ≥ 80%
+        top_picks = df_date[(
+            (df_date["PredValue"] >= 64) & (df_date["HistValue"] >= 50)
+                |
+            ((df_date["PredValue"] >= 80) & (df_date["History H2H"] == '-'))
+            )
         ].sort_values(by=["PredValue", "HistValue"], ascending=False)
         
         # Fallback if no matches meet criteria
@@ -308,8 +334,12 @@ def main():
 
         # Tier 1: Top 3 picks (Division, Match, Prediction)
         logger.log('info', f'Creating Public: 3 daily picks..')
-        n_samples = min(3, len(top_picks))
-        public = top_picks[["Division", "Match", "Prediction"]].head(5).sample(n=n_samples, random_state=1)
+        # Step 1: For each match, randomly select one prediction row
+        one_per_match = top_picks.groupby("Match").apply(lambda x: x.sample(1)).reset_index(drop=True)
+
+        # Step 2: From those, pick 3 random unique matches
+        public = one_per_match.sample(n=min(3, len(one_per_match)), random_state=42)
+
         # Telegram-friendly public list
         public_tg = f"📊 <b>Free Picks — {date_str}</b>\n\n"
         for _, row in public.iterrows():
@@ -323,18 +353,18 @@ def main():
             f.write(public_tg)
 
         logger.log('info', f'Creating VIP: Top 10 picks + reasoning + csv..')
-        vip = top_picks[["Division", "Match", "Prediction", "Confidence", "Prediction %", "History H2H"]]
-        vip = vip.head(10)
+        vip = advance_sorting(top_picks)
+
         # Telegram-friendly VIP list
         vip_tg = f"💎 <b>VIP Picks — {date_str}</b>\n\n"
-        vip.sort_values(by='Match', inplace=True)
+
         for _, row in vip.iterrows():
             vip_tg += f"{row['Confidence']} <b>{row['Match']}</b> → {row['Prediction']} ({row['Prediction %']} | {row['History H2H']})\n"
 
         # Add reasoning for top 5
         vip_tg += "\n<b>Reasoning for Top 5:</b>\n"
-        top_picks.head(5).sort_values(by='Match', inplace=True)
-        for _, row in top_picks.head(5).iterrows():
+        vip.head(5).sort_values(by='Match', inplace=True)
+        for _, row in vip.head(5).iterrows():
             vip_tg += f"• <b>{row['Match']}</b> → {row['Prediction']} ({row['Prediction %']})\n"
             vip_tg += f"  <i>{row['Reasoning']}</i>\n"
 

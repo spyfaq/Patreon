@@ -48,3 +48,10 @@ jobs:
           EMAIL: ${{ secrets.PATREON_EMAIL }}
           PASSWORD: ${{ secrets.PATREON_PASS }}
         run: xvfb-run -a python post_on_patreon.py
+      
+      - name: Upload Playwright video
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-videos
+          path: videos/
+    

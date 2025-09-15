@@ -81,55 +81,59 @@ async def post_to_patreon(title, body, IS_VIP=False, file=None):
         context = await browser.new_context(record_video_dir="videos/")
         page = await context.new_page()
 
-        print("Login to Patreon..")
-        await page.goto("https://www.patreon.com/login", timeout=60000)
+        try:
+            print("Login to Patreon..")
+            await page.goto("https://www.patreon.com/login", timeout=60000)
 
-        # Login
-        await page.wait_for_selector("input[type='email']", timeout=30000)
-        await page.fill("input[type='email']", EMAIL)
-        await page.keyboard.press("Enter")
+            # Login
+            await page.wait_for_selector("input[type='email']", timeout=30000)
+            await page.fill("input[type='email']", EMAIL)
+            await page.keyboard.press("Enter")
 
-        await page.wait_for_selector("input[type='password']", timeout=30000)
-        await page.fill("input[type='password']", PASSWORD)
-        await page.keyboard.press("Enter")
+            await page.wait_for_selector("input[type='password']", timeout=30000)
+            await page.fill("input[type='password']", PASSWORD)
+            await page.keyboard.press("Enter")
 
-        await page.wait_for_timeout(5000)
+            await page.wait_for_timeout(5000)
 
-        # Navigate to new post page
-        
-        print(f'Redirect to post page..')
-        await page.goto("https://www.patreon.com/posts/new?postType=text_only", timeout=60000)
+            # Navigate to new post page
+            
+            print(f'Redirect to post page..')
+            await page.goto("https://www.patreon.com/posts/new?postType=text_only", timeout=60000)
 
-        time.sleep(10)
-        await page.mouse.click(1, 1)
-        # Audience
-        print(f'Setting audience..')
-        if IS_VIP:
-            if file:
-                print(f'Uploading VIP file..')
-                upload_input = page.locator("#add-attachments-button input[type='file']")
-                await upload_input.set_input_files(file["path_lower"])
-                await page.wait_for_timeout(5000)
-                radio_btn = page.locator("//input[@type='radio' and @value='paid']")
+            time.sleep(10)
+            await page.mouse.click(1, 1)
+            # Audience
+            print(f'Setting audience..')
+            if IS_VIP:
+                if file:
+                    print(f'Uploading VIP file..')
+                    upload_input = page.locator("#add-attachments-button input[type='file']")
+                    await upload_input.set_input_files(file["path_lower"])
+                    await page.wait_for_timeout(5000)
+                    radio_btn = page.locator("//input[@type='radio' and @value='paid']")
+                    await radio_btn.click()
+            else:
+                radio_btn = page.locator("//input[@type='radio' and @value='public']")
                 await radio_btn.click()
-        else:
-            radio_btn = page.locator("//input[@type='radio' and @value='public']")
-            await radio_btn.click()
 
-        # Fill post 
-        print(f'Writing post..')
-        body = body.replace("Reasoning for Top 5:", " \n 💡 Reasoning for Predictions:")
-        await page.fill("div.ProseMirror.remirror-editor", body)
-        await page.fill("textarea[aria-label='Title']", title)
+            # Fill post 
+            print(f'Writing post..')
+            body = body.replace("Reasoning for Top 5:", " \n 💡 Reasoning for Predictions:")
+            await page.fill("div.ProseMirror.remirror-editor", body)
+            await page.fill("textarea[aria-label='Title']", title)
 
-        # Publish
-        print(f'Publishing..')
-        await page.click('button[data-tag="make-a-post-action-publish"]')
-        await page.wait_for_timeout(3000)
+            # Publish
+            print(f'Publishing..')
+            await page.click('button[data-tag="make-a-post-action-publish"]')
+            await page.wait_for_timeout(3000)
 
-        print("✅ Post created via Playwright", "VIP" if IS_VIP else "Public")
+            print("✅ Post created via Playwright", "VIP" if IS_VIP else "Public")
 
-        await browser.close()
+        finally:
+            await context.close()
+            await browser.close()
+
 
 async def main():
     files = list_dropbox_files()

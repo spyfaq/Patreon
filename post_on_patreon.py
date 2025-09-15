@@ -128,7 +128,9 @@ async def post_to_patreon(title, body, IS_VIP=False, file=None):
             await page.click('button[data-tag="make-a-post-action-publish"]')
             await page.wait_for_timeout(3000)
 
-            print("✅ Post created via Playwright", "VIP" if IS_VIP else "Public")
+            print("Post created via Playwright", "VIP" if IS_VIP else "Public")
+        except Exception as e:
+            print('Error', str(e))
 
         finally:
             await context.close()

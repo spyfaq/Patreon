@@ -67,7 +67,16 @@ def html_to_markdown(text: str):
 async def post_to_patreon(title, body, IS_VIP=False, file=None):
     print(f'Launching Playwright..')
     async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=False)
+        browser = await p.chromium.launch(
+            headless=True,
+            args=[
+                "--no-sandbox",
+                "--disable-setuid-sandbox",
+                "--disable-dev-shm-usage",
+                "--disable-gpu",
+                "--disable-features=VizDisplayCompositor",
+            ]
+        )
         context = await browser.new_context()
         page = await context.new_page()
 

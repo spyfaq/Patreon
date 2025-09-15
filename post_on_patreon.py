@@ -78,7 +78,7 @@ async def post_to_patreon(title, body, IS_VIP=False, file=None):
                 "--disable-blink-features=AutomationControlled",
             ]
         )
-        context = await browser.new_context()
+        context = await browser.new_context(record_video_dir="videos/")
         page = await context.new_page()
 
         print("Login to Patreon..")

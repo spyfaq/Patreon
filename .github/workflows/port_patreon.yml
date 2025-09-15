@@ -43,6 +43,9 @@ jobs:
           # Set token as env variable for next steps or calling workflow
           echo "DROPBOX_ACCESS_TOKEN=$ACCESS_TOKEN" >> $GITHUB_ENV
           
+      - name: Create Folders
+        run: mkdir -p videos/
+        
       - name: Run posting script
         env:
           EMAIL: ${{ secrets.PATREON_EMAIL }}

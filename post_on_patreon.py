@@ -75,6 +75,7 @@ async def post_to_patreon(title, body, IS_VIP=False, file=None):
                 "--disable-dev-shm-usage",
                 "--disable-gpu",
                 "--disable-features=VizDisplayCompositor",
+                "--disable-blink-features=AutomationControlled",
             ]
         )
         context = await browser.new_context()

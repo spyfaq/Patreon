@@ -47,4 +47,4 @@ jobs:
         env:
           EMAIL: ${{ secrets.PATREON_EMAIL }}
           PASSWORD: ${{ secrets.PATREON_PASS }}
-        run: python post_on_patreon.py
+        run: xvfb-run -a python your_script.py

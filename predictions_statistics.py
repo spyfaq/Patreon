@@ -1,7 +1,7 @@
 import plotly.express as px
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 import pandas as pd
-import numpy as np
 import glob
 import os
 
@@ -28,7 +28,6 @@ final_Full['Date'] = pd.to_datetime(final_Full['Date'], dayfirst=True)
 final_Full['ResultValue'] = final_Full['Outcome'].apply(lambda x: 1 if x else -1)
 final_Full['Cumulative'] = final_Full['ResultValue'].cumsum()
 
-# Resample per date for candlestick (if multiple games per day)
 daily = final_Full.groupby("Date").agg(
     Open=("Cumulative", "first"),
     High=("Cumulative", "max"),
@@ -82,7 +81,6 @@ away_stats.rename(columns={"AwayTeam": "Team"}, inplace=True)
 
 team_stats = pd.concat([home_stats, away_stats])
 
-# --- Aggregate duplicate positions ---
 team_stats_agg = (
     team_stats.groupby(["Games", "Accuracy", "Type"], as_index=False)
     .agg({
@@ -102,18 +100,17 @@ fig_combined = px.scatter(
     hover_data={"Games": True, "Accuracy": ":.0%"},
     title="⚽ Home vs Away Teams - Accuracy vs Games",
     labels={"Games": "Number of Predictions", "Accuracy": "Accuracy (%)"},
-    color_discrete_map={"Home": "#00C49A", "Away": "#00BFFF"}
+    color_discrete_map={"Home": "#1ABC9C", "Away": "#9B59B6"}, 
+    symbol_map={"Home": "circle", "Away": "diamond"}  
 )
 
 fig_combined.update_traces(
-    opacity=0.85,
-    marker=dict(line=dict(width=1, color="white"))
+    opacity=0.9,
+    marker=dict(size=13)  # no outline
 )
-
 
 fig_combined.update_yaxes(range=[-0.05, 1.05])
 
-# subtle 50% reference line
 fig_combined.add_hline(
     y=0.5,
     line=dict(color="lightgray", width=1, dash="dot"),
@@ -129,4 +126,184 @@ fig_combined.update_layout(
 )
 
 fig_combined.show()
+
+
+# --- Free vs VIP Accuracy Area
+acc_trend = (
+    final_Full.groupby(["Date", "PickedforFree"])
+    .Outcome.mean()
+    .reset_index()
+)
+
+acc_trend["Type"] = acc_trend["PickedforFree"].map({True: "Free", False: "VIP"})
+
+vip_fill = "rgba(211,156,65,0.2)"   # VIP gold, 20% opacity
+free_fill = "rgba(4,34,69,0.2)"     # Free dark blue, 20% opacity
+
+fig_weekly = go.Figure()
+
+for t, line_color, fill_color in [("VIP", "#D39C41", "rgba(211,156,65,0.2)"),
+                                  ("Free", "#1F528B", "rgba(4,34,69,0.2)")]:
+    df_plot = acc_trend[acc_trend["Type"] == t]
+    fig_weekly.add_trace(go.Scatter(
+        x=df_plot["Date"],
+        y=df_plot["Outcome"],
+        mode="lines+markers",
+        name=t,
+        line=dict(color=line_color, width=2),
+        marker=dict(size=6),
+        fill='tozeroy',      # fill area under the line
+        fillcolor=fill_color
+    ))
+
+fig_weekly.update_yaxes(range=[-0.05, 1.05], tickformat=".0%")
+fig_weekly.update_layout(
+    title="📈 Free vs VIP Accuracy Over Time",
+    template="plotly_dark",
+    plot_bgcolor="#111111",
+    paper_bgcolor="#111111",
+    font=dict(family="Arial", size=14, color="white"),
+    legend=dict(title="Prediction Type"),
+    hovermode="x unified"
+)
+
+fig_weekly.update_xaxes(
+    tickformat="%b %d %Y",   # only show date, no hours
+    #tickangle=45              # optional: tilt for readability
+)
+
+fig_weekly.show()
+
+
+# --- Division Bars (Free Picks Performance)
+division_perf = (
+    df.groupby(["Division", "PickedforFree"])
+    .Outcome.mean()
+    .reset_index()
+)
+
+division_perf["Type"] = division_perf["PickedforFree"].map({True: "Free", False: "VIP"})
+
+# Sort divisions by VIP accuracy (or overall mean)
+division_order = (
+    division_perf.groupby("Division")["Outcome"].mean()
+    .sort_values(ascending=True)
+    .index.tolist()
+)
+fig_bars = px.bar(
+    division_perf,
+    x="Outcome",
+    y="Division",
+    color="Type",
+    orientation="h",
+    barmode="group",
+    category_orders={"Division": division_order},
+    labels={"Outcome": "Accuracy", "Division": "Division", "Type": "Prediction Type"},
+    title="⚽ Accuracy by Division – Free vs VIP",
+    color_discrete_map={"Free": "#042245", "VIP": "#D39C41"}  # friendly colors
+)
+
+fig_bars.update_traces(
+    text=division_perf["Outcome"].apply(lambda v: f"{v:.0%}"),
+    textposition="outside",
+    hovertemplate="%{y} – %{color}<br>Accuracy: %{x:.0%}<extra></extra>"
+)
+
+fig_bars.update_layout(
+    template="plotly_dark",
+    plot_bgcolor="#111111",
+    paper_bgcolor="#111111",
+    font=dict(family="Arial", size=14, color="white"),
+    xaxis=dict(title="Accuracy (%)", tickformat=".0%"),
+    yaxis=dict(title=None),
+    legend=dict(title="Prediction Type")
+)
+
+fig_bars.show()
+
+
+# --- VIP vs Free cumulative performance
+def cumulative_curve(df):
+    df = df.copy().sort_values("Date")
+    df["Cumulative"] = df["ResultValue"].cumsum()
+    return df[["Date", "Cumulative"]]
+
+vip_curve = cumulative_curve(final_Full[final_Full["PickedforFree"] == False])
+free_curve = cumulative_curve(final_Full[final_Full["PickedforFree"] == True])
+
+fig = make_subplots(
+    rows=2, cols=1,
+    shared_xaxes=True,
+    vertical_spacing=0.05,
+    subplot_titles=("💎 VIP Predictions", "📢 Free Predictions")
+)
+
+fig.add_trace(
+    go.Scatter(
+        x=vip_curve["Date"], y=vip_curve["Cumulative"],
+        mode="lines",
+        line=dict(color="#D39C41", width=4),
+        name="VIP"
+    ), row=1, col=1
+)
+
+fig.add_trace(
+    go.Scatter(
+        x=free_curve["Date"], y=free_curve["Cumulative"],
+        mode="lines",
+        line=dict(color="#1F528B", width=4),
+        name="Free"
+    ), row=2, col=1
+)
+
+fig.add_hline(y=0, line=dict(color="rgba(255,255,255,0.3)", dash="dot"), row=1, col=1)
+fig.add_hline(y=0, line=dict(color="rgba(255,255,255,0.3)", dash="dot"), row=2, col=1)
+
+fig.update_layout(
+    title="📊 Cumulative Growth – VIP vs Free Predictions",
+    template="plotly_dark",
+    plot_bgcolor="#111111",
+    paper_bgcolor="#111111",
+    font=dict(family="Arial", size=14, color="white"),
+    hovermode="x unified",
+    height=800
+)
+
+fig.update_yaxes(title="Cumulative Score", row=1, col=1)
+fig.update_yaxes(title="Cumulative Score", row=2, col=1)
+fig.update_xaxes(title="Date", row=2, col=1,
+    tickformat="%b %d %Y",   # only show date, no hours
+    #tickangle=45              # optional: tilt for readability
+)
+
+fig.show()
+
+
+# --- ROI
+subscription_per_month = 8
+stake = 5
+final_Full["Profit"] = final_Full["Outcome"].apply(lambda x: stake if x else -stake)
+roi = final_Full.groupby("PickedforFree")["Profit"].sum().reset_index()
+roi["Type"] = roi["PickedforFree"].map({True:"Free", False:"VIP"})
+roi["ROI_per_€1"] = roi["Profit"] / subscription_per_month
+
+fig_roi = px.bar(
+    roi, x="Type", y="ROI_per_€1",
+    color="Type",
+    text=roi["ROI_per_€1"].apply(lambda x: f"{x:.1f}x"),
+    color_discrete_map={"VIP":"#D39C41","Free":"#042245"},
+    title="📊 ROI per €1 of Subscription"
+)
+
+fig_roi.update_layout(
+    template="plotly_dark",
+    plot_bgcolor="#111111",
+    paper_bgcolor="#111111",
+    font=dict(family="Arial", size=14, color="white"),
+    yaxis_title="Profit / €1 Subscription",
+    xaxis_title="Prediction Type",
+    showlegend=False
+)
+fig_roi.show()
+
 pass

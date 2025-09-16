@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-import os, datetime, requests, re, warnings, asyncio, time
+import os, datetime, requests, re, warnings, asyncio, time, tempfile
 from playwright.async_api import async_playwright
 
 warnings.filterwarnings('ignore')
@@ -47,8 +47,9 @@ def load_file(tier, files):
     csv_file = None
     if tier == "VIP":
         csv_file = next((f for f in files if f["name"].startswith(tier) and f["name"].endswith(f"{today_str}.xlsx")), None)
+        excel = download_dropbox_file(csv_file["path_lower"])
 
-    return content, csv_file
+    return content, excel
 
 def html_to_markdown(text: str):
     print(f'Converting text to markdown..')
@@ -64,6 +65,14 @@ def html_to_markdown(text: str):
         return None, None
     return lines[0], "\n".join(lines[1:]) if len(lines) > 1 else ""
 
+def temp_file_download(response):
+    # Save temporarily
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp_file:
+        tmp_file.write(response)
+        tmp_file_path = tmp_file.name
+
+    return(tmp_file_path)
+
 async def post_to_patreon(title, body, IS_VIP=False, file=None):
     print(f'Launching Playwright..')
     async with async_playwright() as p:
@@ -78,12 +87,12 @@ async def post_to_patreon(title, body, IS_VIP=False, file=None):
                 "--disable-blink-features=AutomationControlled",
             ]
         )
-        context = await browser.new_context(storage_state="storage_state.json", record_video_dir="videos/")
+        context = await browser.new_context()
         page = await context.new_page()
 
         try:
-            """
-            no need as we use cookies
+
+            #no need as we use cookies
             print("Login to Patreon..")
             await page.goto("https://www.patreon.com/login", timeout=60000)
 
@@ -91,13 +100,12 @@ async def post_to_patreon(title, body, IS_VIP=False, file=None):
             await page.wait_for_selector("input[type='email']", timeout=30000)
             await page.fill("input[type='email']", EMAIL)
             await page.keyboard.press("Enter")
-
             await page.wait_for_selector("input[type='password']", timeout=30000)
             await page.fill("input[type='password']", PASSWORD)
             await page.keyboard.press("Enter")
 
             await page.wait_for_timeout(5000)
-            """
+
             # Navigate to new post page
             # save local storage (if needed)
             #storage = await context.storage_state(path="storage_state.json")
@@ -111,8 +119,9 @@ async def post_to_patreon(title, body, IS_VIP=False, file=None):
             if IS_VIP:
                 if file:
                     print(f'Uploading VIP file..')
+                    tempfile = temp_file_download(file, title)
                     upload_input = page.locator("#add-attachments-button input[type='file']")
-                    await upload_input.set_input_files(file["path_lower"])
+                    await upload_input.set_input_files(tempfile)
                     await page.wait_for_timeout(5000)
                     radio_btn = page.locator("//input[@type='radio' and @value='paid']")
                     await radio_btn.click()

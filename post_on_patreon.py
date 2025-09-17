@@ -44,7 +44,7 @@ def load_file(tier, files):
     if txt_file:
         content = download_dropbox_file(txt_file["path_lower"]).decode("utf-8")
 
-    csv_file = None
+    excel = None
     if tier == "VIP":
         csv_file = next((f for f in files if f["name"].startswith(tier) and f["name"].endswith(f"{today_str}.xlsx")), None)
         excel = download_dropbox_file(csv_file["path_lower"])
@@ -119,7 +119,7 @@ async def post_to_patreon(title, body, IS_VIP=False, file=None):
             if IS_VIP:
                 if file:
                     print(f'Uploading VIP file..')
-                    tempfile = temp_file_download(file, title)
+                    tempfile = temp_file_download(file)
                     upload_input = page.locator("#add-attachments-button input[type='file']")
                     await upload_input.set_input_files(tempfile)
                     await page.wait_for_timeout(5000)

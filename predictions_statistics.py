@@ -24,6 +24,13 @@ final_Full = pd.concat(dfs, ignore_index=True)
 final_Full['Date'] = pd.to_datetime(final_Full['Date'], dayfirst=True)
 
 
+# Step 4: Filter last month
+today = pd.Timestamp.today().normalize()
+last_month = today - pd.DateOffset(days=30)
+
+final_Full = final_Full[final_Full["Date"] >= last_month]
+
+
 # ---------- Cumulative Growth as Candlestick ----------
 final_Full['ResultValue'] = final_Full['Outcome'].apply(lambda x: 1 if x else -1)
 final_Full['Cumulative'] = final_Full['ResultValue'].cumsum()
@@ -41,26 +48,40 @@ fig_candle = go.Figure(data=[go.Candlestick(
     high=daily['High'],
     low=daily['Low'],
     close=daily['Close'],
-    increasing_line_color="#00C49A",  # green
-    decreasing_line_color="#FF4D6D",  # red
-    increasing_fillcolor="#00C49A",
-    decreasing_fillcolor="#FF4D6D"
+    increasing_line_color="#9CFF00",   # neon green (growth)
+    decreasing_line_color="#FF6B6B",   # soft red (decline)
+    increasing_fillcolor="#9CFF00",
+    decreasing_fillcolor="#FF6B6B"
 )])
 
 fig_candle.add_hline(y=0, line=dict(color="rgba(255,255,255,0.3)", dash="dot"))
 
 fig_candle.update_layout(
-    title="📈 Cumulative Growth of Predictions (Candlestick Style)",
-    xaxis_title="Date",
-    yaxis_title="Cumulative Score",
-    template="plotly_dark",
-    plot_bgcolor="#111111",
-    paper_bgcolor="#111111",
+    title=dict(
+        text="📈 Cumulative Growth of Predictions",
+        font=dict(size=22, color="white"),
+        x=0.5,
+        xanchor="center"
+    ),
+    xaxis=dict(
+        title="Date",
+        color="white",
+        showgrid=True,
+        gridcolor="rgba(255,255,255,0.15)"
+    ),
+    yaxis=dict(
+        title="Cumulative Score",
+        color="white",
+        showgrid=True,
+        gridcolor="rgba(255,255,255,0.15)"
+    ),
+    paper_bgcolor="rgba(0,0,0,0)",  # fully transparent
+    plot_bgcolor="rgba(0,0,0,0)",   # fully transparent
     font=dict(family="Arial", size=14, color="white"),
     hovermode="x unified"
 )
 fig_candle.show()
-
+fig_candle.write_image("pics/plot1.png", scale=3)
 
 # ---------- Scatter plot for teams ----------
 home_stats = final_Full.groupby("HomeTeam").agg(
@@ -260,22 +281,41 @@ fig.add_hline(y=0, line=dict(color="rgba(255,255,255,0.3)", dash="dot"), row=1, 
 fig.add_hline(y=0, line=dict(color="rgba(255,255,255,0.3)", dash="dot"), row=2, col=1)
 
 fig.update_layout(
-    title="📊 Cumulative Growth – VIP vs Free Predictions",
-    template="plotly_dark",
-    plot_bgcolor="#111111",
-    paper_bgcolor="#111111",
+    title=dict(
+        text="📊 Cumulative Growth – VIP vs Free Predictions",
+        font=dict(size=22, color="white"),
+        x=0.5, xanchor="center"
+    ),
+    paper_bgcolor="rgba(0,0,0,0)",  # transparent for IG
+    plot_bgcolor="rgba(0,0,0,0)",
     font=dict(family="Arial", size=14, color="white"),
     hovermode="x unified",
     height=800
 )
 
-fig.update_yaxes(title="Cumulative Score", row=1, col=1)
-fig.update_yaxes(title="Cumulative Score", row=2, col=1)
-fig.update_xaxes(title="Date", row=2, col=1,
-    tickformat="%b %d %Y",   # only show date, no hours
-    #tickangle=45              # optional: tilt for readability
+fig.update_yaxes(
+    title="Cumulative Score",
+    color="white",
+    showgrid=True,
+    gridcolor="rgba(255,255,255,0.15)",
+    row=1, col=1
 )
-
+fig.update_yaxes(
+    title="Cumulative Score",
+    color="white",
+    showgrid=True,
+    gridcolor="rgba(255,255,255,0.15)",
+    row=2, col=1
+)
+fig.update_xaxes(
+    title="Date",
+    color="white",
+    showgrid=True,
+    gridcolor="rgba(255,255,255,0.15)",
+    tickformat="%b %d %Y",   # e.g. Sep 18 2025
+    row=2, col=1
+)
+fig.write_image("pics/plot2.png", scale=3)
 fig.show()
 
 
@@ -296,14 +336,28 @@ fig_roi = px.bar(
 )
 
 fig_roi.update_layout(
-    template="plotly_dark",
-    plot_bgcolor="#111111",
-    paper_bgcolor="#111111",
+    paper_bgcolor="rgba(0,0,0,0)",  # transparent for IG
+    plot_bgcolor="rgba(0,0,0,0)",
     font=dict(family="Arial", size=14, color="white"),
-    yaxis_title="Profit / €1 Subscription",
-    xaxis_title="Prediction Type",
+    yaxis=dict(
+        title="Profit / €1 Subscription",
+        color="white",
+        showgrid=True,
+        gridcolor="rgba(255,255,255,0.15)"
+    ),
+    xaxis=dict(
+        title="Prediction Type",
+        color="white",
+        showgrid=False
+    ),
     showlegend=False
 )
-fig_roi.show()
 
+fig_roi.update_traces(
+    textposition="outside", 
+    insidetextanchor="end",
+    textfont=dict(color="white", size=12)
+)
+fig_roi.show()
+fig_roi.write_image("pics/plot3.png", scale=3)
 pass

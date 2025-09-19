@@ -44,12 +44,17 @@ def load_file(tier, files):
     if txt_file:
         content = download_dropbox_file(txt_file["path_lower"]).decode("utf-8")
 
-    excel = None
+    localname = None
     if tier == "VIP":
         csv_file = next((f for f in files if f["name"].startswith(tier) and f["name"].endswith(f"{today_str}.xlsx")), None)
         excel = download_dropbox_file(csv_file["path_lower"])
-
-    return content, excel
+        
+        filename = os.path.basename(csv_file["name"])
+        localname = "publish/" + filename
+        with open(localname, "wb") as f:
+            f.write(excel)
+        
+    return content, localname
 
 def html_to_markdown(text: str):
     print(f'Converting text to markdown..')
@@ -64,14 +69,6 @@ def html_to_markdown(text: str):
     if not lines:
         return None, None
     return lines[0], "\n".join(lines[1:]) if len(lines) > 1 else ""
-
-def temp_file_download(response):
-    # Save temporarily
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp_file:
-        tmp_file.write(response)
-        tmp_file_path = tmp_file.name
-
-    return(tmp_file_path)
 
 async def post_to_patreon(title, body, IS_VIP=False, file=None):
     print(f'Launching Playwright..')
@@ -119,9 +116,8 @@ async def post_to_patreon(title, body, IS_VIP=False, file=None):
             if IS_VIP:
                 if file:
                     print(f'Uploading VIP file..')
-                    tempfile = temp_file_download(file)
                     upload_input = page.locator("#add-attachments-button input[type='file']")
-                    await upload_input.set_input_files(tempfile)
+                    await upload_input.set_input_files(file)
                     await page.wait_for_timeout(5000)
                     radio_btn = page.locator("//input[@type='radio' and @value='paid']")
                     await radio_btn.click()

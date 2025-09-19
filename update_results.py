@@ -133,6 +133,9 @@ def match_matched(results):
     results.rename(columns={'FTHG': 'HG', 'FTAG': 'AG'}, inplace=True)
 
     filesfound = find_VIP_files()
+    if not filesfound:
+        print("No files to update..")
+        
     for file in filesfound:
         print(f'Updating {file} ..')
         prediction_Full = pd.read_excel(file)
@@ -162,9 +165,11 @@ def match_matched(results):
         # Prepend "update_" to the original filename
         new_filename = "update_" + filename
         new_path = os.path.join(folder, new_filename)
+        print(f'New file created {new_filename} ..')
         final_Full.to_excel(new_path, index=False, sheet_name="Sheet1")
 
-        os.remove(os.path.join(folder, filename))
+        print(f'Removing {file} ..')
+        os.remove(file)
 
 if __name__ == '__main__':
     datesave = datetime.date.today().strftime('%Y%m%d')

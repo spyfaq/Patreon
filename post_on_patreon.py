@@ -153,8 +153,8 @@ async def main():
     publictitle, publicbody = html_to_markdown(public)
     viptitle, vipbody = html_to_markdown(vip)
 
-    await post_to_patreon(publictitle, publicbody)
     await post_to_patreon(viptitle, vipbody, True, csv)
+    await post_to_patreon(publictitle, publicbody)
 
 if __name__ == "__main__":
     asyncio.run(main())

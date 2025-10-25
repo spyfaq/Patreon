@@ -113,11 +113,40 @@ def saveto_csv(towrite):
     towrite.to_csv(filename, index=False)
     logger.log('info', f'Results saved to csv..', info=filename)
 
+def odd_addition(df):
+    next_match1 = pd.read_csv('https://www.football-data.co.uk/fixtures.csv', encoding='utf-8-sig')
+    next_match1 = next_match1[['Date','Time','Div','HomeTeam','AwayTeam', 'AvgH', 'AvgD', 'AvgA']]
+
+    next_match2 = pd.read_csv('https://www.football-data.co.uk/new_league_fixtures.csv', encoding='utf-8-sig')
+    next_match2 = next_match2[['Date','Time', 'Country', 'Home','Away', 'AvgH', 'AvgD', 'AvgA']]
+    next_match2 = next_match2.rename(columns={'Country': 'Div', 'Home': 'HomeTeam', 'Away': 'AwayTeam'})    
+    
+    next_match = pd.concat([next_match1, next_match2])
+    next_match['Date'] = pd.to_datetime(next_match['Date'], format='%d/%m/%Y')
+
+    # Merge predictions with fixtures
+    merged = df.merge(next_match[['HomeTeam', 'AwayTeam', 'AvgH', 'AvgA']], on=['HomeTeam', 'AwayTeam'], how='left')
+    
+    # Map based on prediction type
+    def map_avg(row):
+        if row['Prediction'] == '1':
+            return row['AvgH']
+        elif row['Prediction'] == '2':
+            return row['AvgA']
+        return None
+
+    merged['AVGOdd'] = merged.apply(map_avg, axis=1)
+
+    # Keep only original prediction columns + new mapped value
+    df_result = merged[df.columns.tolist() + ['AVGOdd']]
+    return(df_result)
+
 def merging_func():
     last_majorfile = newest_predictions('major')
     last_minorfile = newest_predictions('minor')
     concdata = accumulate_data(last_majorfile, last_minorfile)
-    saveto_csv(concdata)
+    finaldf = odd_addition(concdata)
+    saveto_csv(finaldf)
 
     logger.log('info', f'Deleting interm files..', info=f'{last_majorfile}, {last_minorfile}')
 

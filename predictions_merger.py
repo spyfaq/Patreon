@@ -114,6 +114,7 @@ def saveto_csv(towrite):
     logger.log('info', f'Results saved to csv..', info=filename)
 
 def odd_addition(df):
+    logger.log('info', f'Getting odds..')
     next_match1 = pd.read_csv('https://www.football-data.co.uk/fixtures.csv', encoding='utf-8-sig')
     next_match1 = next_match1[['Date','Time','Div','HomeTeam','AwayTeam', 'AvgH', 'AvgD', 'AvgA']]
 
@@ -139,6 +140,7 @@ def odd_addition(df):
 
     # Keep only original prediction columns + new mapped value
     df_result = merged[df.columns.tolist() + ['AVGOdd']]
+    logger.log('info', f'Odds Captured..')
     return(df_result)
 
 def merging_func():

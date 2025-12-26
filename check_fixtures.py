@@ -48,4 +48,3 @@ if __name__ == "__main__":
                 time.sleep(args.interval)
 
     print(f"❌ No fixtures found in {args.league} after {args.retries} attempts")
-    sys.exit(1)

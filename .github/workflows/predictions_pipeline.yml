@@ -88,12 +88,14 @@ jobs:
 
       - name: Download Major League predictions
         uses: actions/download-artifact@v4
+        continue-on-error: true
         with:
           name: majorleague-predictions
           path: predictions_data/
 
       - name: Download Minor League predictions
         uses: actions/download-artifact@v4
+        continue-on-error: true
         with:
           name: minorleague-predictions
           path: predictions_data/

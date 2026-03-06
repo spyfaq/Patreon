@@ -5,6 +5,8 @@ import os
 import datetime
 import requests
 import random 
+#from dotenv import load_dotenv
+#load_dotenv() 
 
 DROPBOX_TOKEN = os.environ["DROPBOX_ACCESS_TOKEN"]
 BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
@@ -19,12 +21,37 @@ DROPBOX_FOLDER = "/telegram_content"
 today_str = datetime.date.today().strftime("%Y-%m-%d")
 
 def list_dropbox_files():
+    headers = {
+        "Authorization": f"Bearer {DROPBOX_TOKEN}",
+        "Content-Type": "application/json"
+    }
+
+    entries = []
+
+    # First page
     url = "https://api.dropboxapi.com/2/files/list_folder"
-    headers = {"Authorization": f"Bearer {DROPBOX_TOKEN}", "Content-Type": "application/json"}
-    payload = {"path": DROPBOX_FOLDER}
+    payload = {
+        "path": DROPBOX_FOLDER,
+        "recursive": True  # remove if you only want top-level files
+    }
+
     r = requests.post(url, headers=headers, json=payload)
     r.raise_for_status()
-    return r.json().get("entries", [])
+    data = r.json()
+
+    entries.extend(data.get("entries", []))
+
+    # Remaining pages
+    while data.get("has_more"):
+        url = "https://api.dropboxapi.com/2/files/list_folder/continue"
+        payload = {"cursor": data["cursor"]}
+
+        r = requests.post(url, headers=headers, json=payload)
+        r.raise_for_status()
+        data = r.json()
+        entries.extend(data.get("entries", []))
+
+    return entries
 
 def download_dropbox_file(path_lower):
     url = "https://content.dropboxapi.com/2/files/download"

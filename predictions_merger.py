@@ -115,25 +115,46 @@ def saveto_csv(towrite):
 
 def odd_addition(df):
     logger.log('info', f'Getting odds..')
+
+    # Over/Under 2.5 columns aren't published for every league/source, so
+    # fetch them defensively and fall back to NaN rather than failing the
+    # whole merge if a source is missing them.
+    ou_candidates = ['Avg>2.5', 'Avg<2.5']
+    base_cols = ['Date', 'Time', 'Div', 'HomeTeam', 'AwayTeam', 'AvgH', 'AvgD', 'AvgA']
+
     next_match1 = pd.read_csv('https://www.football-data.co.uk/fixtures.csv', encoding='utf-8-sig')
-    next_match1 = next_match1[['Date','Time','Div','HomeTeam','AwayTeam', 'AvgH', 'AvgD', 'AvgA']]
+    have_ou_1 = [c for c in ou_candidates if c in next_match1.columns]
+    next_match1 = next_match1[base_cols + have_ou_1]
 
     next_match2 = pd.read_csv('https://www.football-data.co.uk/new_league_fixtures.csv', encoding='utf-8-sig')
-    next_match2 = next_match2[['Date','Time', 'Country', 'Home','Away', 'AvgH', 'AvgD', 'AvgA']]
-    next_match2 = next_match2.rename(columns={'Country': 'Div', 'Home': 'HomeTeam', 'Away': 'AwayTeam'})    
-    
+    have_ou_2 = [c for c in ou_candidates if c in next_match2.columns]
+    next_match2 = next_match2[['Date','Time', 'Country', 'Home','Away', 'AvgH', 'AvgD', 'AvgA'] + have_ou_2]
+    next_match2 = next_match2.rename(columns={'Country': 'Div', 'Home': 'HomeTeam', 'Away': 'AwayTeam'})
+
     next_match = pd.concat([next_match1, next_match2])
     next_match['Date'] = pd.to_datetime(next_match['Date'], format='%d/%m/%Y')
+    next_match = next_match.rename(columns={'Avg>2.5': 'AvgOver25', 'Avg<2.5': 'AvgUnder25'})
 
-    # Merge predictions with fixtures
-    merged = df.merge(next_match[['HomeTeam', 'AwayTeam', 'AvgH', 'AvgA']], on=['HomeTeam', 'AwayTeam'], how='left')
-    
+    for c in ['AvgD', 'AvgOver25', 'AvgUnder25']:
+        if c not in next_match.columns:
+            next_match[c] = None
+
+    # Merge predictions with fixtures. Previously only AvgH/AvgA were kept,
+    # so draw (X) and Over/Under 2.5 predictions had no odds to compare
+    # against a bookmaker at all.
+    merge_cols = ['HomeTeam', 'AwayTeam', 'AvgH', 'AvgD', 'AvgA', 'AvgOver25', 'AvgUnder25']
+    merged = df.merge(next_match[merge_cols], on=['HomeTeam', 'AwayTeam'], how='left')
+
     # Map based on prediction type
     def map_avg(row):
         if row['Prediction'] == '1':
             return row['AvgH']
+        elif row['Prediction'] == 'X':
+            return row['AvgD']
         elif row['Prediction'] == '2':
             return row['AvgA']
+        elif row['Prediction'] == 'O2_5':
+            return row['AvgOver25']
         return None
 
     merged['AVGOdd'] = merged.apply(map_avg, axis=1)

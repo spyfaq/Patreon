@@ -63,6 +63,49 @@ def download_dropbox_file(path_lower):
     r.raise_for_status()
     return r.content
 
+TELEGRAM_MAX_LEN = 4096  # Telegram's hard limit for sendMessage text
+
+
+def send_telegram_message(bot_token, chat_id, text):
+    """Send a message, splitting it into <=4096-char chunks if needed (Telegram
+    rejects longer text outright), and checking the response instead of
+    assuming success -- previously a failed send (bad chat_id, over the
+    length limit, rate limit, etc.) would still print "Posted" with no
+    indication anything went wrong.
+    """
+    send_text_url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+
+    chunks = [text[i:i + TELEGRAM_MAX_LEN] for i in range(0, len(text), TELEGRAM_MAX_LEN)] or [text]
+
+    for chunk in chunks:
+        payload = {"chat_id": chat_id, "text": chunk, "parse_mode": "HTML", "disable_web_page_preview": True}
+        resp = requests.post(send_text_url, data=payload)
+        result = {}
+        try:
+            result = resp.json()
+        except ValueError:
+            pass
+        if not resp.ok or not result.get("ok", False):
+            print(f"❌ Telegram sendMessage failed (status {resp.status_code}): {result.get('description', resp.text)}")
+            return False
+    return True
+
+
+def send_telegram_document(bot_token, chat_id, filename, file_bytes):
+    send_doc_url = f"https://api.telegram.org/bot{bot_token}/sendDocument"
+    files_payload = {"document": (filename, file_bytes)}
+    resp = requests.post(send_doc_url, data={"chat_id": chat_id}, files=files_payload)
+    result = {}
+    try:
+        result = resp.json()
+    except ValueError:
+        pass
+    if not resp.ok or not result.get("ok", False):
+        print(f"❌ Telegram sendDocument failed (status {resp.status_code}): {result.get('description', resp.text)}")
+        return False
+    return True
+
+
 files = list_dropbox_files()
 
 for tier in CHAT_IDS.keys():
@@ -80,15 +123,15 @@ for tier in CHAT_IDS.keys():
 
     if txt_file:
         content = download_dropbox_file(txt_file["path_lower"]).decode("utf-8")
-        send_text_url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-        text_payload = {"chat_id": CHAT_IDS[tier], "text": content, "parse_mode": "HTML", "disable_web_page_preview": True}
-        requests.post(send_text_url, data=text_payload)
-        posted_something = True
-        print(f"Posted {txt_file['name']} to {tier}")
+        if send_telegram_message(BOT_TOKEN, CHAT_IDS[tier], content):
+            posted_something = True
+            print(f"Posted {txt_file['name']} to {tier}")
+        else:
+            print(f"Failed to post {txt_file['name']} to {tier}")
 
     if csv_file:
         csv_data = download_dropbox_file(csv_file["path_lower"])
-        send_doc_url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendDocument"
-        files_payload = {"document": (csv_file["name"], csv_data)}
-        requests.post(send_doc_url, data={"chat_id": CHAT_IDS[tier]}, files=files_payload)
-        print(f"Posted {csv_file['name']} to {tier}")
+        if send_telegram_document(BOT_TOKEN, CHAT_IDS[tier], csv_file["name"], csv_data):
+            print(f"Posted {csv_file['name']} to {tier}")
+        else:
+            print(f"Failed to post {csv_file['name']} to {tier}")

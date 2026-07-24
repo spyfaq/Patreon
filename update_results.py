@@ -25,7 +25,8 @@ LEAGUES = {'En PremierLeague': 'E0',
                'Sp Segunda': 'SP2',
                'Fr Division 2': 'F2',
                'En League 1': 'E2',
-               'SC PremierLeague': 'SC0'
+               'SC PremierLeague': 'SC0',
+               'Tr Futbol Ligi 1': 'T1'
                }
 
 LEAGUES2 = {

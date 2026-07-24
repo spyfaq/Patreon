@@ -30,6 +30,18 @@ last_month = today - pd.DateOffset(days=30)
 
 final_Full = final_Full[final_Full["Date"] >= last_month]
 
+# Outcome arrives from update_results.py as the literal strings 'TRUE',
+# 'FALSE', or '' (unmatched). Python treats every non-empty string as
+# truthy -- including the string 'FALSE' -- so code further down that did
+# `1 if x else -1` was scoring every loss as a win. Convert to a real
+# boolean here, once, so every downstream mean/sum/apply is correct.
+final_Full['Outcome'] = final_Full['Outcome'].map({'TRUE': True, 'FALSE': False})
+# Rows that couldn't be matched (no result yet, data gap) are neither a win
+# nor a loss -- drop them rather than let them silently corrupt every
+# accuracy/ROI figure below.
+final_Full = final_Full.dropna(subset=['Outcome'])
+final_Full['Outcome'] = final_Full['Outcome'].astype(bool)
+
 
 # ---------- Cumulative Growth as Candlestick ----------
 final_Full['ResultValue'] = final_Full['Outcome'].apply(lambda x: 1 if x else -1)
@@ -198,7 +210,7 @@ fig_weekly.show()
 
 # --- Division Bars (Free Picks Performance)
 division_perf = (
-    df.groupby(["Division", "PickedforFree"])
+    final_Full.groupby(["Division", "PickedforFree"])
     .Outcome.mean()
     .reset_index()
 )

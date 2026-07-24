@@ -45,8 +45,9 @@ MIN_EDGE = 0.03
 MIN_MODEL_PROB = 0.45
 
 # Prediction codes we can currently price against bookmaker odds.
-# (Extend odd_addition()/fetch_market_odds() below if you want more markets priced.)
-PRICED_MARKETS = {'1', 'X', '2', 'O2_5', 'U2_5'}
+# Note: only 'O2_5' (Over 2.5) exists as an actual prediction code the model
+# emits - it never predicts "Under", so there's no 'U2_5' row to price.
+PRICED_MARKETS = {'1', 'X', '2', 'O2_5'}
 
 PREDICTION_LABELS = {
     "O1_5": "Over 1.5 Goals", "O2_5": "Over 2.5 Goals", "O3_5": "Over 3.5 Goals",

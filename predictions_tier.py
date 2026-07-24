@@ -334,8 +334,15 @@ def main():
 
         # Tier 1: Top 3 picks (Division, Match, Prediction)
         logger.log('info', f'Creating Public: 3 daily picks..')
-        # Step 1: For each match, randomly select one prediction row
-        one_per_match = top_picks.groupby("Match").apply(lambda x: x.sample(1)).reset_index(drop=True)
+        # Step 1: For each match, randomly select one prediction row.
+        # Weighted by ConfScore (instead of uniform) so a match with one
+        # strong market and one weak one is much more likely to surface the
+        # strong one, while still keeping some variety in the free tier.
+        # random_state fixed for reproducibility (previously unseeded, so
+        # which market got shown for a given match varied run to run).
+        one_per_match = top_picks.groupby("Match", group_keys=False).apply(
+            lambda x: x.sample(1, weights=x["ConfScore"].clip(lower=0.01), random_state=42)
+        ).reset_index(drop=True)
 
         # Step 2: From those, pick 3 random unique matches
         public = one_per_match.sample(n=min(3, len(one_per_match)), random_state=42)

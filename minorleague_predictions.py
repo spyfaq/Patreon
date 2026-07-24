@@ -3,7 +3,7 @@
 
 import pandas as pd
 import numpy as np
-import  sys, os, datetime, warnings
+import  sys, os, datetime, warnings, json
 from scipy.stats import poisson
 from scipy.optimize import minimize
 from jsonlogger_class import JSONLogger
@@ -50,6 +50,7 @@ Path to save  data
 """
 DATAPATH = 'predictions_data/'
 DATANAME = 'my_prediction_minor_data_{date1}_{date2}'
+PARAMSPATH = 'model_params/'
 LOGPATH = 'logs/simu/'
 LOGNAME = '{date}_my_prediction_minor_logs'
 
@@ -180,6 +181,46 @@ def _dc_log_like_single(params, data, teams, xi=0.0, reg=0.05, ident_pen=1e3):
 
     return -ll + reg_pen + ident_penalty
 
+def params_vector_from_dict(params_dict, teams):
+    """Flatten a fitted-params dict back into the raw vector solve_parameters_decay
+    optimizes over, in the same [attack..., defence..., rho, home_adv] order,
+    for the given (sorted) team list. Returns None if any team is missing
+    from the cached dict (e.g. a team not seen last run) -- a fresh random
+    init is safer than a partially-wrong warm start in that case.
+    """
+    try:
+        attack = [params_dict['attack_' + t] for t in teams]
+        defence = [params_dict['defence_' + t] for t in teams]
+        return np.array(attack + defence + [params_dict['rho'], params_dict['home_adv']])
+    except KeyError:
+        return None
+
+
+def load_cached_params(divis, teams):
+    """Load last run's fitted Dixon-Coles params for this league, to use as
+    the optimizer's starting point (fix #1: warm-start instead of always
+    starting from a random init, which is the main compute cost per league
+    per run on a GitHub Actions runner).
+    """
+    path = os.path.join(PARAMSPATH, f'{divis}_params.json')
+    if not os.path.exists(path):
+        return None
+    try:
+        with open(path) as f:
+            cached = json.load(f)
+    except Exception:
+        return None
+    return params_vector_from_dict(cached, teams)
+
+
+def save_cached_params(divis, params_dict):
+    if not os.path.exists(PARAMSPATH):
+        os.makedirs(PARAMSPATH)
+    path = os.path.join(PARAMSPATH, f'{divis}_params.json')
+    with open(path, 'w') as f:
+        json.dump(params_dict, f)
+
+
 def solve_parameters_decay(dataset, xi=0.0018, debug=False, init_vals=None, options={'disp': False, 'maxiter': 200},
                            constraints=None, reg=0.05, restarts=3, bounds_scale=3.0, seed=42, **kwargs):
     """Estimate Dixon-Coles parameters with L2 regularization, bounds and multiple restarts.
@@ -248,22 +289,28 @@ def resultdef(result, ht, at, divis, mdata, mtime, standings, old_df, lgdata, TH
     # outcomes the model itself thinks are less likely than not.
     max_g = result.shape[0] - 1
     max_g_away = result.shape[1] - 1
-    
-    over1_5 = np.sum(result[i, j] for i in range(max_g + 1) for j in range(max_g_away + 1) if i + j > 1)
-    over2_5 = np.sum(result[i, j] for i in range(max_g + 1) for j in range(max_g_away + 1) if i + j > 2)
-    over3_5 = np.sum(result[i, j] for i in range(max_g + 1) for j in range(max_g_away + 1) if i + j > 3)
+
+    # Vectorized market sums (previously Python-loop generators wrapped in
+    # np.sum -- same result via pure numpy slicing/masking, cheaper across
+    # every fixture in every league on every run).
+    gi, gj = np.indices(result.shape)
+    total_goals = gi + gj
+
+    over1_5 = result[total_goals > 1].sum()
+    over2_5 = result[total_goals > 2].sum()
+    over3_5 = result[total_goals > 3].sum()
 
     home = np.sum(np.tril(result, -1))
     away = np.sum(np.triu(result, 1))
     draw = np.sum(np.diag(result))
 
-    gg = np.sum(result[i, j] for i in range(1, max_g + 1) for j in range(1, max_g_away + 1))
+    gg = result[1:, 1:].sum()
 
-    hO1_5 = np.sum(result[i, j] for i in range(2, max_g + 1) for j in range(max_g_away + 1))
-    hO2_5 = np.sum(result[i, j] for i in range(3, max_g + 1) for j in range(max_g_away + 1))
+    hO1_5 = result[2:, :].sum()
+    hO2_5 = result[3:, :].sum()
 
-    aO1_5 = np.sum(result[i, j] for i in range(max_g + 1) for j in range(2, max_g_away + 1))
-    aO2_5 = np.sum(result[i, j] for i in range(max_g + 1) for j in range(3, max_g_away + 1))
+    aO1_5 = result[:, 2:].sum()
+    aO2_5 = result[:, 3:].sum()
 
 
     dict = {'O1_5': over1_5,
@@ -284,7 +331,7 @@ def resultdef(result, ht, at, divis, mdata, mtime, standings, old_df, lgdata, TH
     
     logger.log('info', "Calculating class history", info=str(f'{ht}-{at}'))
     hist_dict = historyfunc(path, ht, at, old_df)
-    form_df = calculate_win_and_goal_form(lgdata)
+    rows = []
     for res in dict.keys():
         if dict[res] > THRESH:
             try:
@@ -296,29 +343,30 @@ def resultdef(result, ht, at, divis, mdata, mtime, standings, old_df, lgdata, TH
             homestats = standings.loc[standings['team'] == ht, 'summary_home'].squeeze()
             awaystats = standings.loc[standings['team'] == at, 'summary_away'].squeeze()
 
-            tempser = pd.Series([divis, mdata, mtime, ht, at, res, dict[res].round(2), hist_perc, homestats, awaystats,'',''])
-            tempser = tempser.tolist()
+            rows.append([divis, mdata, mtime, ht, at, res, dict[res].round(2), hist_perc, homestats, awaystats, '', ''])
 
-            outcome.loc[len(outcome)] = tempser
-            
-            # Merge form data for home and away teams
-            merged = outcome.merge(form_df, left_on='HomeTeam', right_on='team', suffixes=('', '_home'))
-            merged = merged.merge(form_df, left_on='AwayTeam', right_on='team', suffixes=('_home', '_away'))
+    if rows:
+        outcome = pd.DataFrame(rows, columns=["Division", "Date", "Time", "HomeTeam", "AwayTeam", "Prediction", "Prediction %",
+                                 "History %", "HomeTeam Stats", "AwayTeam Stats", "HomeForm", "AwayForm"])
 
-            # Function to select correct form based on prediction type
-            def pick_form(row):
-                if row['Prediction'] in ['1', '2', 'X']:
-                    return pd.Series([row['HomeWinForm_home'], row['AwayWinForm_away']])
-                elif row['Prediction'] in ['O1_5', 'O2_5', 'O3_5', 'hO1_5', 'hO2_5', 'aO1_5', 'aO2_5']:
-                    return pd.Series([row['HomeGoalsForm_home'], row['AwayGoalsForm_away']])
-                else:
-                    return pd.Series([None, None])
+        form_df = calculate_win_and_goal_form(lgdata)
+        merged = outcome.merge(form_df, left_on='HomeTeam', right_on='team', suffixes=('', '_home'))
+        merged = merged.merge(form_df, left_on='AwayTeam', right_on='team', suffixes=('_home', '_away'))
 
-            merged[['HomeForm', 'AwayForm']] = merged.apply(pick_form, axis=1)
+        # Function to select correct form based on prediction type
+        def pick_form(row):
+            if row['Prediction'] in ['1', '2', 'X']:
+                return pd.Series([row['HomeWinForm_home'], row['AwayWinForm_away']])
+            elif row['Prediction'] in ['O1_5', 'O2_5', 'O3_5', 'hO1_5', 'hO2_5', 'aO1_5', 'aO2_5']:
+                return pd.Series([row['HomeGoalsForm_home'], row['AwayGoalsForm_away']])
+            else:
+                return pd.Series([None, None])
 
-            # Final result
-            outcome = merged[["Division", "Date", "Time", "HomeTeam", "AwayTeam", "Prediction", "Prediction %", 
-                             "History %", "HomeTeam Stats", "AwayTeam Stats", "HomeForm", "AwayForm"]]
+        merged[['HomeForm', 'AwayForm']] = merged.apply(pick_form, axis=1)
+
+        # Final result
+        outcome = merged[["Division", "Date", "Time", "HomeTeam", "AwayTeam", "Prediction", "Prediction %", 
+                         "History %", "HomeTeam Stats", "AwayTeam Stats", "HomeForm", "AwayForm"]]
 
     return(outcome)
 
@@ -722,7 +770,10 @@ if __name__ == '__main__':
 
         logger.log('info', f"Calculating parameters for {divis}..")
         try:
-            params = solve_parameters_decay(league_data)
+            teams_sorted = np.sort(league_data['HomeTeam'].unique())
+            warm_start = load_cached_params(divis, teams_sorted)
+            params = solve_parameters_decay(league_data, init_vals=warm_start)
+            save_cached_params(divis, params)
         except Exception as e:
             logger.log('error', f"Simulating problem.. skipping {divis}.. ", info=str(e))
             continue

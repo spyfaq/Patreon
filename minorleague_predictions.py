@@ -180,8 +180,8 @@ def _dc_log_like_single(params, data, teams, xi=0.0, reg=0.05, ident_pen=1e3):
 
     return -ll + reg_pen + ident_penalty
 
-def solve_parameters_decay(dataset, xi=0.0, debug=False, init_vals=None, options={'disp': False, 'maxiter': 200},
-                           constraints=None, reg=0.05, restarts=3, bounds_scale=3.0, **kwargs):
+def solve_parameters_decay(dataset, xi=0.0018, debug=False, init_vals=None, options={'disp': False, 'maxiter': 200},
+                           constraints=None, reg=0.05, restarts=3, bounds_scale=3.0, seed=42, **kwargs):
     """Estimate Dixon-Coles parameters with L2 regularization, bounds and multiple restarts.
 
     This function preserves the original return format (a dict mapping names to values). It
@@ -200,9 +200,13 @@ def solve_parameters_decay(dataset, xi=0.0, debug=False, init_vals=None, options
     b_rho = [(-0.9999, 0.9999), (-2.5, 2.5)]
     bounds = b_att + b_def + b_rho
 
+    # Seeded RNG so repeated runs on the same data produce the same fitted
+    # parameters (previously used the unseeded global np.random state).
+    rng = np.random.RandomState(seed)
+
     def make_init():
-        return np.concatenate((np.random.normal(0, 0.2, n_teams),
-                               np.random.normal(0, 0.2, n_teams),
+        return np.concatenate((rng.normal(0, 0.2, n_teams),
+                               rng.normal(0, 0.2, n_teams),
                                np.array([0.0, 0.1])
                                ))
 
@@ -238,7 +242,10 @@ def solve_parameters_decay(dataset, xi=0.0, debug=False, init_vals=None, options
     param_names = ["attack_" + team for team in teams] + ["defence_" + team for team in teams] + ['rho', 'home_adv']
     return dict(zip(param_names, x))
 
-def resultdef(result, ht, at, divis, mdata, mtime, standings, old_df, lgdata, THRESH = 0.4):
+def resultdef(result, ht, at, divis, mdata, mtime, standings, old_df, lgdata, THRESH = 0.5):
+    # THRESH raised from 0.4 -> 0.5: 40% let markets close to a coin-flip
+    # through as "predictions". 0.5 is still permissive but avoids flagging
+    # outcomes the model itself thinks are less likely than not.
     max_g = result.shape[0] - 1
     max_g_away = result.shape[1] - 1
     

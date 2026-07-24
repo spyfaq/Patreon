@@ -23,7 +23,15 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Create Folders
-        run: mkdir -p predictions_data/ logs/simu/
+        run: mkdir -p predictions_data/ logs/simu/ model_params/
+
+      - name: Restore model params cache (warm-start)
+        uses: actions/cache@v4
+        with:
+          path: model_params/
+          key: model-params-major-${{ github.run_id }}
+          restore-keys: |
+            model-params-major-
 
       - name: Check Major League Fixtures
         run: python check_fixtures.py majorleague --retries 12 --interval 600
@@ -53,7 +61,15 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Create Folders
-        run: mkdir -p predictions_data/ logs/simu/
+        run: mkdir -p predictions_data/ logs/simu/ model_params/
+
+      - name: Restore model params cache (warm-start)
+        uses: actions/cache@v4
+        with:
+          path: model_params/
+          key: model-params-minor-${{ github.run_id }}
+          restore-keys: |
+            model-params-minor-
 
       - name: Check Minor League Fixtures
         run: python check_fixtures.py minorleague --retries 12 --interval 600

@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 import pandas as pd
-import sys, argparse, time
+import sys, os, argparse, time
 from datetime import datetime
 
 
@@ -28,6 +28,19 @@ def get_upcoming_fixtures(url):
         print(f"❌ Error fetching {url}: {e}")
         return pd.DataFrame()
 
+
+def set_github_output(name, value):
+    """Write a step output for the workflow to branch on. Only meaningful
+    inside GitHub Actions (GITHUB_OUTPUT is set there); no-op otherwise so
+    this still runs fine locally (e.g. via predictions.bat).
+    """
+    path = os.environ.get("GITHUB_OUTPUT")
+    if not path:
+        return
+    with open(path, "a") as f:
+        f.write(f"{name}={value}\n")
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("league", choices=URLS.keys(), help="League to check")
@@ -41,6 +54,7 @@ if __name__ == "__main__":
         fixtures = get_upcoming_fixtures(url)
         if not fixtures.empty:
             print(f"✅ Upcoming fixtures found in {args.league} ({len(fixtures)} matches - {time.ctime()})")
+            set_github_output("fixtures_found", "true")
             sys.exit(0)
         else:
             print(f"⏳ Attempt {attempt}/{args.retries}: no fixtures yet in {args.league} - {time.ctime()}")
@@ -48,3 +62,12 @@ if __name__ == "__main__":
                 time.sleep(args.interval)
 
     print(f"❌ No fixtures found in {args.league} after {args.retries} attempts")
+    # Previously this fell off the end with the default exit code (0), so a
+    # "no fixtures" result was indistinguishable from success -- the workflow
+    # would run the (pointless) prediction step regardless. Now we exit
+    # non-zero AND record fixtures_found=false, so the calling workflow can
+    # skip just this league's remaining steps (via continue-on-error + an
+    # `if:` on the output) instead of either silently proceeding or failing
+    # the whole pipeline.
+    set_github_output("fixtures_found", "false")
+    sys.exit(1)

@@ -34,16 +34,21 @@ jobs:
             model-params-major-
 
       - name: Check Major League Fixtures
+        id: check_major_fixtures
+        continue-on-error: true
         run: python check_fixtures.py majorleague --retries 12 --interval 600
 
       - name: Run Major League Predictions
+        if: steps.check_major_fixtures.outputs.fixtures_found == 'true'
         run: python majorleague_predictions.py
 
       - name: Upload Major League predictions
+        if: steps.check_major_fixtures.outputs.fixtures_found == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: majorleague-predictions
           path: predictions_data/*
+          if-no-files-found: ignore
 
   minorleague:
     runs-on: ubuntu-latest
@@ -72,16 +77,21 @@ jobs:
             model-params-minor-
 
       - name: Check Minor League Fixtures
+        id: check_minor_fixtures
+        continue-on-error: true
         run: python check_fixtures.py minorleague --retries 12 --interval 600
 
       - name: Run Minor League Predictions
+        if: steps.check_minor_fixtures.outputs.fixtures_found == 'true'
         run: python minorleague_predictions.py
 
       - name: Upload Minor League predictions
+        if: steps.check_minor_fixtures.outputs.fixtures_found == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: minorleague-predictions
           path: predictions_data/*
+          if-no-files-found: ignore
 
   merge_and_tier:
     runs-on: ubuntu-latest

@@ -2,8 +2,7 @@ name: Predictions Pipeline
 
 on:
   schedule:
-    - cron: "00 11 * * 2" # Tuesday at 14:00 Greek
-    - cron: "30 13 * * 5" # Friday at 16:30 Greek
+    - cron: "00 11 * * *" # Daily at 14:00 Greek (was Tue/Fri only)
   workflow_dispatch: # Allow manual run
 
 permissions:

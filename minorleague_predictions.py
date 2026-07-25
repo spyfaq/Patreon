@@ -761,6 +761,15 @@ if __name__ == '__main__':
 
     logger.log('info', "Downloading schedule..")
     next_match = upcoming('https://www.football-data.co.uk/new_league_fixtures.csv')
+
+    # 1-day window cap: see majorleague_predictions.py for the full rationale.
+    tomorrow = pd.Timestamp(datetime.date.today() + datetime.timedelta(days=1))
+    next_match = next_match[next_match['Date'].dt.normalize() == tomorrow]
+
+    if next_match.empty:
+        logger.log('info', "No fixtures tomorrow.. Bye")
+        sys.exit()
+
     fromdate = min(next_match['Date']).strftime('%d%m%Y')
     todate = max(next_match['Date']).strftime('%d%m%Y')
     DATANAME = DATANAME.replace('{date1}', fromdate).replace('{date2}', todate) + '.csv'
@@ -768,10 +777,6 @@ if __name__ == '__main__':
         logger = JSONLogger(log_file=LOGNAME, log_dir=LOGPATH)
         logger.log('critical', "Data exists already! Forced exit app!")
         exit()
-    
-    if next_match['Date'].max() <= pd.Timestamp(datetime.date.today() - datetime.timedelta(days=2)):
-        logger.log('info', "Nothing new.. Bye")
-        sys.exit()
 
     logger.log('info', "Running for each league..", info=str(len(LEAGUES)))
     results_df = pd.DataFrame()

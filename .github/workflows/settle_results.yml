@@ -1,15 +1,12 @@
 name: Settle Results
 
-# Runs shortly before each prediction-generation run (predictions_pipeline.yml),
-# so the previous batch has had time to fully play out:
-#   - Tuesday 10:00 UTC settles Friday's batch (Fri/Sat/Sun/Mon matches)
-#     before Tuesday's 11:00 UTC generation run for Tue/Wed/Thu.
-#   - Friday 12:30 UTC settles Tuesday's batch (Tue/Wed/Thu matches)
-#     before Friday's 13:30 UTC generation run for Fri/Sat/Sun/Mon.
+# Runs daily, 1 hour before predictions_pipeline.yml's daily 11:00 UTC
+# generation run -- settles yesterday's single-day batch (each batch is now
+# exactly one day's matches, thanks to the 1-day window cap, so by the next
+# morning it has fully played out).
 on:
   schedule:
-    - cron: "00 10 * * 2" # Tuesday at 13:00 Greek (1h before generation)
-    - cron: "30 12 * * 5" # Friday at 15:30 Greek (1h before generation)
+    - cron: "00 10 * * *" # Daily at 13:00 Greek (1h before generation)
   workflow_dispatch: # Allow manual run
 
 permissions:

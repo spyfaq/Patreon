@@ -18,9 +18,12 @@ def get_upcoming_fixtures(url):
         # Parse date column
         df["Date"] = pd.to_datetime(df["Date"], errors="coerce", dayfirst=True)
 
-        # Only fixtures strictly after today
+        # Only tomorrow's fixtures -- matches the 1-day window the generation
+        # scripts now use. Previously unbounded (>= tomorrow, no upper
+        # limit), so it reported "fixtures found" even when the only
+        # matches were a week away.
         tomorrow = pd.Timestamp(datetime.today().date()) + pd.Timedelta(days=1)
-        upcoming = df[df["Date"] >= tomorrow]
+        upcoming = df[df["Date"].dt.normalize() == tomorrow]
 
         return upcoming
 

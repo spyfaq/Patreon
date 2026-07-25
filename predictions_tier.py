@@ -229,8 +229,18 @@ def parse_hist(s):
     except Exception:
         return np.nan
 
-def advance_sorting(top_picks):
-    df = top_picks.copy()  # use your already-filtered top_picks
+def dedup_one_per_match(top_picks, limit=None):
+    """One prediction per match, keeping only the single best-quality
+    market for that fixture. Showing both '1' (Home Win) and '2' (Away
+    Win) for the same match -- or Over 1.5/2.5/3.5 all stacked together --
+    doesn't read as a clear tip, just noise.
+
+    Ranking: (1) a >80% pick with no H2H history available, (2) picks
+    with H2H history, by Prediction % then History %, (3) everything
+    else. `limit=None` keeps every qualifying match (used for the Excel
+    export); pass a number (e.g. 10) to cap it, as the Telegram VIP text
+    does to stay readable."""
+    df = top_picks.copy()
 
     # priority: 1 = special (Pred>80 & Hist is NaN), 2 = normal (Hist not NaN), 3 = other (Hist NaN but Pred <= 80)
     df['priority'] = np.where(
@@ -247,11 +257,11 @@ def advance_sorting(top_picks):
         ascending=[True, False, False]
     )
 
-    # keep only one row per match (best by the sorting) and take top 10
-    vip = df_sorted.drop_duplicates(subset='Match', keep='first').head(10).drop(
+    # keep only one row per match (best by the sorting)
+    deduped = df_sorted.drop_duplicates(subset='Match', keep='first').drop(
         columns=['priority', 'Hist_for_sort']
     )
-    return vip[["Division", "Match", "Prediction", "Confidence", "Prediction %", "History H2H", 'Reasoning']]
+    return deduped.head(limit) if limit is not None else deduped
 
 def main():
     filename = newest_predictions()
@@ -272,6 +282,14 @@ def main():
     # in the same VIP list/Telegram post.
     df_full['HomeTeam'] = df_full['HomeTeam'].apply(team_utils.display_name)
     df_full['AwayTeam'] = df_full['AwayTeam'].apply(team_utils.display_name)
+
+    # Drop bet-builder combos (e.g. '1+O2_5', 'X+GG') entirely -- a combo
+    # code always contains '+', a single market never does. Combos are a
+    # separate feature surfaced by best_bets_selector.py directly from the
+    # merged predictions CSV; they were never meant to reach the VIP
+    # tipster list or Excel, and letting them through here is what made
+    # every match show 20+ near-random "picks" instead of one clear tip.
+    df_full = df_full[~df_full['Prediction'].astype(str).str.contains('+', regex=False)].copy()
 
     logger.log('info', f'Map predictions to friendly names..')
     prediction_map = {
@@ -342,22 +360,20 @@ def main():
             top_picks = df_date.sort_values(by="PredValue", ascending=False).head(5)
             logger.log('warning', f"No matches met criteria for {date_str}, fallback to top 5 by Prediction %")
         
-        df_date = df_date.drop(columns=["PredValue", "HistValue", "ConfScore", "Datetime_temp", "AdjustedDate"])
+        df_date = df_date.drop(columns=["Datetime_temp", "AdjustedDate"])
 
-        # Tier 1: Top 3 picks (Division, Match, Prediction)
+        # One prediction per match, quality-ranked, no cap -- the
+        # canonical VIP-quality list. Combos were already dropped on
+        # load, so every row here is a genuine single-market tip.
+        vip_all = dedup_one_per_match(top_picks, limit=None)
+
+        # Tier 1: 3 random matches from the VIP-quality list, using each
+        # match's single best pick (there's only one now) -- previously
+        # this sampled independently from top_picks (which still had
+        # multiple markets per match), so the free-tier pick could differ
+        # from what the VIP list/Excel showed for the same match.
         logger.log('info', f'Creating Public: 3 daily picks..')
-        # Step 1: For each match, randomly select one prediction row.
-        # Weighted by ConfScore (instead of uniform) so a match with one
-        # strong market and one weak one is much more likely to surface the
-        # strong one, while still keeping some variety in the free tier.
-        # random_state fixed for reproducibility (previously unseeded, so
-        # which market got shown for a given match varied run to run).
-        one_per_match = top_picks.groupby("Match", group_keys=False).apply(
-            lambda x: x.sample(1, weights=x["ConfScore"].clip(lower=0.01), random_state=42)
-        ).reset_index(drop=True)
-
-        # Step 2: From those, pick 3 random unique matches
-        public = one_per_match.sample(n=min(3, len(one_per_match)), random_state=42)
+        public = vip_all.sample(n=min(3, len(vip_all)), random_state=42)
 
         # Telegram-friendly public list
         public_tg = f"📊 <b>Free Picks — {date_str}</b>\n\n"
@@ -372,7 +388,7 @@ def main():
             f.write(public_tg)
 
         logger.log('info', f'Creating VIP: Top 10 picks + reasoning + csv..')
-        vip = advance_sorting(top_picks)
+        vip = vip_all.head(10)
 
         # Telegram-friendly VIP list
         vip_tg = f"💎 <b>VIP Picks — {date_str}</b>\n\n"
@@ -382,17 +398,20 @@ def main():
 
         # Add reasoning for top 5
         vip_tg += "\n<b>Reasoning for Top 5:</b>\n"
-        vip.head(5).sort_values(by='Match', inplace=True)
-        for _, row in vip.head(5).iterrows():
+        for _, row in vip.head(5).sort_values(by='Match').iterrows():
             vip_tg += f"• <b>{row['Match']}</b> → {row['Prediction']} ({row['Prediction %']})\n"
             vip_tg += f"  <i>{row['Reasoning']}</i>\n"
 
-        df_date["PickedforFree"] = df_date.apply(
-            lambda row: (row["Division"], row["Match"], row["Prediction"]) 
-                        in public[["Division", "Match", "Prediction"]].itertuples(index=False, name=None),
-            axis=1
-        )
-        df_save = df_date[["Division", "Date", "Time", "HomeTeam", "AwayTeam", "Prediction", "Prediction %", "History H2H", "HomeForm", "AwayForm", "Reasoning", "HomeTeam Stats", "AwayTeam Stats", "PickedforFree"]]
+        # Mark the 3 free-tier picks within the VIP-quality list itself --
+        # this is now the same list the Excel is built from, so the flag
+        # is consistent with what actually got posted to the free tier.
+        vip_all["PickedforFree"] = vip_all["Match"].isin(public["Match"])
+
+        # Excel = the full VIP-quality list (every qualifying match, one
+        # pick each, no combos) -- previously this was df_date, the raw
+        # per-market output for every match in the day regardless of
+        # quality, which is what produced 20+ rows for a single fixture.
+        df_save = vip_all[["Division", "Date", "Time", "HomeTeam", "AwayTeam", "Prediction", "Prediction %", "History H2H", "HomeForm", "AwayForm", "Reasoning", "HomeTeam Stats", "AwayTeam Stats", "PickedforFree"]]
         # Telegram text, and CSV
         with open(f"{PUBLISHPATH}/VIP_{date_str}.txt", "w", encoding="utf-8") as f:
             f.write(vip_tg)

@@ -135,3 +135,19 @@ for tier in CHAT_IDS.keys():
             print(f"Posted {csv_file['name']} to {tier}")
         else:
             print(f"Failed to post {csv_file['name']} to {tier}")
+
+# Suggested Bets (accumulator slip from best_bets_selector.py): a VIP-tier
+# bonus, posted as its own message. Handled separately from the tier loop
+# above since it's a single extra text file (not a matching txt+xlsx pair
+# per tier), and its filename doesn't start with "VIP" so the loop's
+# startswith(tier) match wouldn't find it anyway.
+suggested_file = next(
+    (f for f in files if f["name"].startswith("SuggestedBets") and f["name"].endswith(f"{today_str}.txt")),
+    None
+)
+if suggested_file:
+    content = download_dropbox_file(suggested_file["path_lower"]).decode("utf-8")
+    if send_telegram_message(BOT_TOKEN, CHAT_IDS["VIP"], content):
+        print(f"Posted {suggested_file['name']} to VIP")
+    else:
+        print(f"Failed to post {suggested_file['name']} to VIP")

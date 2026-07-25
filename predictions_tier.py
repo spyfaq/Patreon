@@ -300,6 +300,8 @@ def main():
     logger.log('info', f'Loading file..', filename)
     df_full = pd.read_csv(filename)
     df_full.rename(columns={'History %': 'History H2H'}, inplace=True)
+    if "AVGOdd" not in df_full.columns:
+        df_full["AVGOdd"] = None
     # Reverse the LEAGUES dict
     code_to_name = {v: k for k, v in LEAGUES.items()}
 
@@ -339,6 +341,7 @@ def main():
     
     df_full["Prediction"] = df_full["Prediction"].map(prediction_map).fillna(df_full["Prediction"])
     df_full["Prediction %"] = df_full["Prediction %"].apply(lambda x: f"{x*100:.2f}%")
+    df_full["AVGOdd"] = df_full["AVGOdd"].apply(lambda x: f"{x:.2f}" if pd.notna(x) else "-")
     df_full["Match"] = df_full["HomeTeam"] + " vs " + df_full["AwayTeam"]
 
     df_full['Time'] = (
@@ -448,7 +451,8 @@ def main():
             lambda row: (row["Match"], row["Prediction"]) in public_pairs, axis=1
         )
 
-        df_save = excel_picks[["Division", "Date", "Time", "HomeTeam", "AwayTeam", "Prediction", "Prediction %", "History H2H", "HomeForm", "AwayForm", "Reasoning", "HomeTeam Stats", "AwayTeam Stats", "PickedforFree"]]
+        excel_picks = excel_picks.rename(columns={"AVGOdd": "Odds"})
+        df_save = excel_picks[["Division", "Date", "Time", "HomeTeam", "AwayTeam", "Prediction", "Odds", "Prediction %", "History H2H", "HomeForm", "AwayForm", "Reasoning", "HomeTeam Stats", "AwayTeam Stats", "PickedforFree"]]
         # Telegram text, and CSV
         with open(f"{PUBLISHPATH}/VIP_{date_str}.txt", "w", encoding="utf-8") as f:
             f.write(vip_tg)

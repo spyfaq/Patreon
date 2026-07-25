@@ -197,6 +197,15 @@ jobs:
       - name: Tier Predictions
         run: python predictions_tier.py
 
+      - name: Run Best Bets / Suggested Bets Selector
+        # Reads the same merged predictions_data/*.csv that Tier
+        # Predictions just used; writes BestBets_*, BetBuilder_*, and
+        # SuggestedBets_* into publish/ alongside the VIP/Public files, so
+        # they ride along on the existing upload/download/posting/history
+        # steps below without any changes to those.
+        continue-on-error: true
+        run: python best_bets_selector.py
+
       - name: Upload Predictions
         uses: actions/upload-artifact@v4
         with:
@@ -257,7 +266,7 @@ jobs:
           # days from now (Tuesday's job settling Friday's batch, or vice versa)
           # find this batch, since GitHub Actions runners don't keep local
           # disk between separate workflow runs.
-          cp publish/*.xlsx publish/*.txt "$BATCH_DIR"/ 2>/dev/null || true
+          cp publish/*.xlsx publish/*.txt publish/*.csv "$BATCH_DIR"/ 2>/dev/null || true
 
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"

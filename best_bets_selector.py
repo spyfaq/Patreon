@@ -64,6 +64,16 @@ COMBO_MAX_PICKS = 3
 COMBO_MIN_EDGE = 0.03
 COMBO_MIN_MODEL_PROB = 0.25
 
+# Accumulator ("suggested bets") slip: a single combined ticket across
+# several DIFFERENT matches (as opposed to best/combo_best above, which
+# are independent single-match suggestions). Legs are chosen from the
+# same priced singles + combos pools, one leg per match, greedily by
+# edge, until the combined (multiplied) odds clears TARGET_AGG_ODD or the
+# leg count hits ACC_MAX_LEGS -- whichever comes first.
+ACC_MIN_LEGS = 4
+ACC_MAX_LEGS = 6
+TARGET_AGG_ODD = 4.0
+
 # Prediction codes we can currently price against bookmaker odds.
 # Note: only 'O2_5' (Over 2.5) exists as an actual prediction code the model
 # emits - it never predicts "Under", so there's no 'U2_5' row to price.
@@ -251,26 +261,35 @@ def expected_value_per_unit_stake(model_prob, odd) -> float:
     return model_prob * (odd - 1) - (1 - model_prob)
 
 
-def select_best_bets(df: pd.DataFrame) -> pd.DataFrame:
+def _ranked_singles_pool(df: pd.DataFrame) -> pd.DataFrame:
+    """Every single-market pick that clears the edge/probability bar,
+    one per match, ranked by EV -- uncapped. select_best_bets() just caps
+    and labels this; build_accumulator() draws from the full pool since
+    it may need more than MAX_PICKS candidates to find enough legs across
+    distinct matches."""
     priced = df[df['Edge'].notna()].copy()
     priced = priced[
         (priced['Edge'] >= MIN_EDGE) &
         (priced['ModelProb'] >= MIN_MODEL_PROB)
     ]
-
     if priced.empty:
-        logger.log('warning', 'No matches cleared the edge/probability thresholds today.')
         return priced
 
     priced['EV'] = priced.apply(
         lambda r: expected_value_per_unit_stake(r['ModelProb'], r['MarketOdd']), axis=1
     )
-
-    # One pick per match: keep the highest-EV market for that fixture
     priced['Match'] = priced['HomeTeam'] + ' vs ' + priced['AwayTeam']
     priced = priced.sort_values('EV', ascending=False).drop_duplicates(subset='Match', keep='first')
+    return priced.sort_values('EV', ascending=False)
 
-    priced = priced.sort_values('EV', ascending=False)
+
+def select_best_bets(df: pd.DataFrame) -> pd.DataFrame:
+    priced = _ranked_singles_pool(df)
+
+    if priced.empty:
+        logger.log('warning', 'No matches cleared the edge/probability thresholds today.')
+        return priced
+
     if len(priced) < MIN_PICKS:
         logger.log('info', f'Only {len(priced)} value bet(s) cleared the threshold today (below the usual {MIN_PICKS}-{MAX_PICKS} target).')
     n_picks = min(MAX_PICKS, len(priced))
@@ -280,32 +299,40 @@ def select_best_bets(df: pd.DataFrame) -> pd.DataFrame:
     return best
 
 
-def select_best_combo_bets(df: pd.DataFrame) -> pd.DataFrame:
-    """Bet builder selection: same idea as select_best_bets, restricted to
-    combo rows priced against the independence baseline (see
-    attach_combo_edges). Kept as a separate, smaller supplementary list
-    rather than mixed into the main single-market picks.
-    """
+def _ranked_combo_pool(df: pd.DataFrame) -> pd.DataFrame:
+    """Every bet-builder combo that clears the combo edge/probability
+    bar, one per match, ranked by ComboEV -- uncapped. Mirrors
+    _ranked_singles_pool; select_best_combo_bets() caps and labels this,
+    build_accumulator() draws from the full pool."""
     is_combo = df['Prediction'].str.contains(r'\+', regex=True, na=False)
     priced = df[is_combo & df['ComboEdge'].notna()].copy()
     priced = priced[
         (priced['ComboEdge'] >= COMBO_MIN_EDGE) &
         (priced['ModelProb'] >= COMBO_MIN_MODEL_PROB)
     ]
-
     if priced.empty:
-        logger.log('info', 'No bet-builder combos cleared the edge/probability thresholds today.')
         return priced
 
     priced['ComboEV'] = priced.apply(
         lambda r: expected_value_per_unit_stake(r['ModelProb'], r['BaselineOdd']), axis=1
     )
-
-    # One combo pick per match: keep the highest-EV combo for that fixture
     priced['Match'] = priced['HomeTeam'] + ' vs ' + priced['AwayTeam']
     priced = priced.sort_values('ComboEV', ascending=False).drop_duplicates(subset='Match', keep='first')
+    return priced.sort_values('ComboEV', ascending=False)
 
-    priced = priced.sort_values('ComboEV', ascending=False)
+
+def select_best_combo_bets(df: pd.DataFrame) -> pd.DataFrame:
+    """Bet builder selection: same idea as select_best_bets, restricted to
+    combo rows priced against the independence baseline (see
+    attach_combo_edges). Kept as a separate, smaller supplementary list
+    rather than mixed into the main single-market picks.
+    """
+    priced = _ranked_combo_pool(df)
+
+    if priced.empty:
+        logger.log('info', 'No bet-builder combos cleared the edge/probability thresholds today.')
+        return priced
+
     if len(priced) < COMBO_MIN_PICKS:
         logger.log('info', f'Only {len(priced)} bet-builder combo(s) cleared the threshold today.')
     n_picks = min(COMBO_MAX_PICKS, len(priced))
@@ -313,6 +340,102 @@ def select_best_combo_bets(df: pd.DataFrame) -> pd.DataFrame:
 
     best['PredictionLabel'] = best['Prediction'].apply(prediction_label)
     return best
+
+
+def build_accumulator(df: pd.DataFrame) -> tuple:
+    """Single combined ticket ('suggested bets' slip) across 4-6 DIFFERENT
+    matches -- distinct from best/combo_best above, which are independent
+    single-match suggestions rather than one combined bet.
+
+    Pool: the same priced singles + combo pools used elsewhere, merged and
+    reduced to one leg per match (whichever of that match's single or
+    combo picks has the higher EV), ranked by EV. Legs are added greedily
+    from that ranking: never fewer than ACC_MIN_LEGS, never more than
+    ACC_MAX_LEGS, and stop as soon as both the leg-count floor is met AND
+    the combined (multiplied) odds clears TARGET_AGG_ODD -- whichever
+    happens later. If there aren't enough distinct matches, or the
+    combined odds never reaches the target even using all available legs,
+    no accumulator is offered for the day rather than forcing a weak one.
+
+    Returns (legs_df, combined_odd) on success, or (empty df, None) if no
+    suggestion clears the bar today.
+    """
+    singles = _ranked_singles_pool(df)
+    combos = _ranked_combo_pool(df)
+
+    pool = pd.DataFrame()
+    if not singles.empty:
+        s = singles.copy()
+        s['_odd'] = s['MarketOdd']
+        s['_ev'] = s['EV']
+        s['_is_combo'] = False
+        pool = pd.concat([pool, s])
+    if not combos.empty:
+        c = combos.copy()
+        c['_odd'] = c['BaselineOdd']
+        c['_ev'] = c['ComboEV']
+        c['_is_combo'] = True
+        pool = pd.concat([pool, c])
+
+    if pool.empty:
+        logger.log('info', 'No priced picks available to build a suggested-bets accumulator.')
+        return pd.DataFrame(), None
+
+    # One leg per match: if both a single and a combo qualified for the
+    # same fixture, keep whichever has the higher EV so the accumulator
+    # never carries two legs on one match.
+    pool = pool[pool['_odd'].notna() & (pool['_odd'] > 1)]
+    pool = pool.sort_values('_ev', ascending=False).drop_duplicates(subset='Match', keep='first')
+    pool = pool.sort_values('_ev', ascending=False)
+
+    legs = []
+    agg_odd = 1.0
+    for _, row in pool.iterrows():
+        if len(legs) >= ACC_MAX_LEGS:
+            break
+        legs.append(row)
+        agg_odd *= row['_odd']
+        if len(legs) >= ACC_MIN_LEGS and agg_odd >= TARGET_AGG_ODD:
+            break
+
+    if len(legs) < ACC_MIN_LEGS:
+        logger.log('info', f'Only {len(legs)} distinct-match leg(s) available -- below the {ACC_MIN_LEGS}-leg minimum for a suggested-bets slip today.')
+        return pd.DataFrame(), None
+
+    if agg_odd < TARGET_AGG_ODD:
+        logger.log('info', f'Best available {len(legs)}-leg combination only reaches {agg_odd:.2f}x -- below the {TARGET_AGG_ODD}x target, skipping suggested bets today.')
+        return pd.DataFrame(), None
+
+    legs_df = pd.DataFrame(legs)
+    legs_df['PredictionLabel'] = legs_df['Prediction'].apply(prediction_label)
+    return legs_df, agg_odd
+
+
+def format_suggested_bets(legs: pd.DataFrame, agg_odd, date_str: str) -> str:
+    if legs.empty or agg_odd is None:
+        return (
+            f"⚠️ <b>No Suggested Bets slip for {date_str}.</b>\n"
+            f"Not enough distinct-match legs cleared the value bar to reach a "
+            f"{TARGET_AGG_ODD:.1f}x combined odd today -- sitting this one out is the right call."
+        )
+
+    msg = (
+        f"🎰 <b>Suggested Bets — {date_str}</b>\n"
+        f"<i>{len(legs)}-leg accumulator, combined odds ~{agg_odd:.2f}x</i>\n\n"
+    )
+    for i, (_, row) in enumerate(legs.iterrows(), start=1):
+        odd_label = "baseline" if row['_is_combo'] else "odd"
+        msg += (
+            f"{i}. ⚽ <b>{row['Match']}</b> ({row['Division']})\n"
+            f"   → {row['PredictionLabel']} @ {row['_odd']:.2f} ({odd_label})\n"
+        )
+    msg += (
+        f"\n📌 Combined odds multiply individual risk -- ALL legs must win for the "
+        f"slip to pay out. Bet-builder legs use an estimated baseline, not a "
+        f"bookmaker-quoted price (see Bet Builder Picks for detail). This is one "
+        f"illustrative combination, not a guarantee any single leg lands."
+    )
+    return msg
 
 
 def format_telegram(best: pd.DataFrame, combo_best: pd.DataFrame, date_str: str) -> str:
@@ -383,6 +506,24 @@ def main():
         logger.log('info', f'Selected {len(combo_best)} bet-builder combos.', info=str(combo_best["Match"].tolist()))
     else:
         logger.log('info', 'No bet-builder combos selected today.')
+
+    # Suggested Bets: one combined 4-6 leg accumulator (singles and/or
+    # combos, one leg per match) targeting a combined odd of at least
+    # TARGET_AGG_ODD -- distinct from the independent per-match
+    # suggestions above.
+    legs, agg_odd = build_accumulator(df)
+    suggested_text = format_suggested_bets(legs, agg_odd, date_str)
+    with open(f"{PUBLISHPATH}/SuggestedBets_{date_str}.txt", "w", encoding="utf-8") as f:
+        f.write(suggested_text)
+
+    if not legs.empty:
+        leg_cols = ['Division', 'Date', 'Time', 'HomeTeam', 'AwayTeam', 'PredictionLabel', '_odd', '_ev', '_is_combo']
+        legs[leg_cols].rename(columns={'_odd': 'Odd', '_ev': 'EV', '_is_combo': 'IsCombo'}).to_csv(
+            f"{PUBLISHPATH}/SuggestedBets_{date_str}.csv", index=False
+        )
+        logger.log('info', f'Built a {len(legs)}-leg suggested bets slip at {agg_odd:.2f}x.', info=str(legs["Match"].tolist()))
+    else:
+        logger.log('info', 'No suggested-bets accumulator built today.')
 
     print(tg_text)
 

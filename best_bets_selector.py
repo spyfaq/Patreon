@@ -38,6 +38,7 @@ import datetime
 import numpy as np
 import pandas as pd
 from jsonlogger_class import JSONLogger
+import date_utils
 
 LOGPATH = 'logs/bestbets/'
 LOGNAME = '{date}_bestbets_logs'
@@ -479,43 +480,53 @@ def main():
     df = attach_edges(df)
     df = attach_combo_edges(df)
 
-    best = select_best_bets(df)
-    combo_best = select_best_combo_bets(df)
-
-    date_str = datetime.date.today().strftime('%Y-%m-%d')
-    tg_text = format_telegram(best, combo_best, date_str)
+    # Bucket by the same AdjustedDate rule predictions_tier.py uses (see
+    # date_utils.py) instead of stamping every output with
+    # date.today() -- the pipeline predicts TOMORROW's fixtures, so
+    # date.today() was always one day behind the actual match date, and a
+    # single run can legitimately span two AdjustedDate buckets at once
+    # (early-morning matches shifted back a day, everything else not).
+    df['AdjustedDate'] = date_utils.adjusted_date_series(df['Date'], df['Time'])
 
     if not os.path.exists(PUBLISHPATH):
         os.makedirs(PUBLISHPATH)
 
-    with open(f"{PUBLISHPATH}/BestBets_{date_str}.txt", "w", encoding="utf-8") as f:
-        f.write(tg_text)
+    for match_date, df_date in df.groupby('AdjustedDate'):
+        date_str = pd.to_datetime(match_date).strftime('%Y-%m-%d')
+        df_date = df_date.drop(columns=['AdjustedDate'])
 
-    if not best.empty:
-        logger.log('info', f'Selected {len(best)} best bets.', info=str(best["Match"].tolist()))
-    else:
-        logger.log('warning', 'No best bets selected today.')
+        best = select_best_bets(df_date)
+        combo_best = select_best_combo_bets(df_date)
 
-    if not combo_best.empty:
-        logger.log('info', f'Selected {len(combo_best)} bet-builder combos.', info=str(combo_best["Match"].tolist()))
-    else:
-        logger.log('info', 'No bet-builder combos selected today.')
+        tg_text = format_telegram(best, combo_best, date_str)
+        with open(f"{PUBLISHPATH}/BestBets_{date_str}.txt", "w", encoding="utf-8") as f:
+            f.write(tg_text)
 
-    # Suggested Bets: one combined 4-6 leg accumulator (singles and/or
-    # combos, one leg per match) targeting a combined odd of at least
-    # TARGET_AGG_ODD -- distinct from the independent per-match
-    # suggestions above.
-    legs, agg_odd = build_accumulator(df)
-    suggested_text = format_suggested_bets(legs, agg_odd, date_str)
-    with open(f"{PUBLISHPATH}/SuggestedBets_{date_str}.txt", "w", encoding="utf-8") as f:
-        f.write(suggested_text)
+        if not best.empty:
+            logger.log('info', f'Selected {len(best)} best bets for {date_str}.', info=str(best["Match"].tolist()))
+        else:
+            logger.log('warning', f'No best bets selected for {date_str}.')
 
-    if not legs.empty:
-        logger.log('info', f'Built a {len(legs)}-leg suggested bets slip at {agg_odd:.2f}x.', info=str(legs["Match"].tolist()))
-    else:
-        logger.log('info', 'No suggested-bets accumulator built today.')
+        if not combo_best.empty:
+            logger.log('info', f'Selected {len(combo_best)} bet-builder combos for {date_str}.', info=str(combo_best["Match"].tolist()))
+        else:
+            logger.log('info', f'No bet-builder combos selected for {date_str}.')
 
-    print(tg_text)
+        # Suggested Bets: one combined 4-6 leg accumulator (singles
+        # and/or combos, one leg per match) targeting a combined odd of
+        # at least TARGET_AGG_ODD -- distinct from the independent
+        # per-match suggestions above.
+        legs, agg_odd = build_accumulator(df_date)
+        suggested_text = format_suggested_bets(legs, agg_odd, date_str)
+        with open(f"{PUBLISHPATH}/SuggestedBets_{date_str}.txt", "w", encoding="utf-8") as f:
+            f.write(suggested_text)
+
+        if not legs.empty:
+            logger.log('info', f'Built a {len(legs)}-leg suggested bets slip at {agg_odd:.2f}x for {date_str}.', info=str(legs["Match"].tolist()))
+        else:
+            logger.log('info', f'No suggested-bets accumulator built for {date_str}.')
+
+        print(tg_text)
 
 
 if __name__ == '__main__':

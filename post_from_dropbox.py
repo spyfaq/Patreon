@@ -4,7 +4,8 @@
 import os
 import datetime
 import requests
-import random 
+import random
+import date_utils
 #from dotenv import load_dotenv
 #load_dotenv() 
 
@@ -18,7 +19,14 @@ CHAT_IDS = {
 
 # Dropbox folder path
 DROPBOX_FOLDER = "/telegram_content"
-today_str = datetime.date.today().strftime("%Y-%m-%d")
+
+# The pipeline predicts TOMORROW's fixtures but shifts early-morning
+# matches back a day (see date_utils.py) -- so a single run's output can
+# be dated either today or tomorrow, or both at once (e.g. VIP_2026-07-25
+# AND VIP_2026-07-26 from the same run). Checking only today's date, as
+# this used to, silently missed every file in the "tomorrow" bucket --
+# which is most of them, since only early-morning matches shift back.
+CANDIDATE_DATE_STRS = date_utils.relevant_date_strs()
 
 def list_dropbox_files():
     headers = {
@@ -107,47 +115,52 @@ def send_telegram_document(bot_token, chat_id, filename, file_bytes):
 
 
 files = list_dropbox_files()
+posted_paths = set()  # guards against double-sending if a path somehow matches more than once
 
 for tier in CHAT_IDS.keys():
-    # Find today's HTML text file
-    txt_file = next(
-        (f for f in files if f["name"].startswith(tier) and f["name"].endswith(f"{today_str}.txt")),
-        None
-    )
-    # Find today's CSV file
-    csv_file = next(
-        (f for f in files if f["name"].startswith(tier) and f["name"].endswith(f"{today_str}.xlsx")),
-        None
-    )
-    posted_something = False
+    for date_str in CANDIDATE_DATE_STRS:
+        # Find this date's HTML text file
+        txt_file = next(
+            (f for f in files if f["name"].startswith(tier) and f["name"].endswith(f"{date_str}.txt")),
+            None
+        )
+        # Find this date's xlsx file
+        csv_file = next(
+            (f for f in files if f["name"].startswith(tier) and f["name"].endswith(f"{date_str}.xlsx")),
+            None
+        )
 
-    if txt_file:
-        content = download_dropbox_file(txt_file["path_lower"]).decode("utf-8")
-        if send_telegram_message(BOT_TOKEN, CHAT_IDS[tier], content):
-            posted_something = True
-            print(f"Posted {txt_file['name']} to {tier}")
-        else:
-            print(f"Failed to post {txt_file['name']} to {tier}")
+        if txt_file and txt_file["path_lower"] not in posted_paths:
+            content = download_dropbox_file(txt_file["path_lower"]).decode("utf-8")
+            if send_telegram_message(BOT_TOKEN, CHAT_IDS[tier], content):
+                posted_paths.add(txt_file["path_lower"])
+                print(f"Posted {txt_file['name']} to {tier}")
+            else:
+                print(f"Failed to post {txt_file['name']} to {tier}")
 
-    if csv_file:
-        csv_data = download_dropbox_file(csv_file["path_lower"])
-        if send_telegram_document(BOT_TOKEN, CHAT_IDS[tier], csv_file["name"], csv_data):
-            print(f"Posted {csv_file['name']} to {tier}")
-        else:
-            print(f"Failed to post {csv_file['name']} to {tier}")
+        if csv_file and csv_file["path_lower"] not in posted_paths:
+            csv_data = download_dropbox_file(csv_file["path_lower"])
+            if send_telegram_document(BOT_TOKEN, CHAT_IDS[tier], csv_file["name"], csv_data):
+                posted_paths.add(csv_file["path_lower"])
+                print(f"Posted {csv_file['name']} to {tier}")
+            else:
+                print(f"Failed to post {csv_file['name']} to {tier}")
 
-# Suggested Bets (accumulator slip from best_bets_selector.py): a VIP-tier
-# bonus, posted as its own message. Handled separately from the tier loop
-# above since it's a single extra text file (not a matching txt+xlsx pair
-# per tier), and its filename doesn't start with "VIP" so the loop's
-# startswith(tier) match wouldn't find it anyway.
-suggested_file = next(
-    (f for f in files if f["name"].startswith("SuggestedBets") and f["name"].endswith(f"{today_str}.txt")),
-    None
-)
-if suggested_file:
-    content = download_dropbox_file(suggested_file["path_lower"]).decode("utf-8")
-    if send_telegram_message(BOT_TOKEN, CHAT_IDS["VIP"], content):
-        print(f"Posted {suggested_file['name']} to VIP")
-    else:
-        print(f"Failed to post {suggested_file['name']} to VIP")
+# Best Bets (value-bet picks from best_bets_selector.py) and Suggested
+# Bets (its accumulator slip) are both VIP-tier bonus messages, posted
+# separately from the tier loop above since neither filename starts with
+# "Public" or "VIP" -- the loop's startswith(tier) match would never find
+# either of them.
+for label, prefix in [("Best Bets", "BestBets"), ("Suggested Bets", "SuggestedBets")]:
+    for date_str in CANDIDATE_DATE_STRS:
+        bonus_file = next(
+            (f for f in files if f["name"].startswith(prefix) and f["name"].endswith(f"{date_str}.txt")),
+            None
+        )
+        if bonus_file and bonus_file["path_lower"] not in posted_paths:
+            content = download_dropbox_file(bonus_file["path_lower"]).decode("utf-8")
+            if send_telegram_message(BOT_TOKEN, CHAT_IDS["VIP"], content):
+                posted_paths.add(bonus_file["path_lower"])
+                print(f"Posted {bonus_file['name']} to VIP")
+            else:
+                print(f"Failed to post {bonus_file['name']} to VIP")

@@ -10,6 +10,7 @@ from openpyxl import load_workbook
 from openpyxl.worksheet.table import Table, TableStyleInfo
 from openpyxl.utils import get_column_letter
 import team_utils
+import date_utils
 
 LOGPATH = 'logs/data/'
 LOGNAME = '{date}_tipsselection_logs'
@@ -349,13 +350,11 @@ def main():
     .dt.time
     .fillna(datetime.time(0, 0))  # replace NaT with 00:00
 )
-    # Assume df_full['Date'] is already a datetime.date and df_full['Time'] is datetime.time
-    df_full['Datetime_temp'] = pd.to_datetime(df_full['Date'].astype(str) + ' ' + df_full['Time'].astype(str), dayfirst=True)
-
-    # Shift early-morning matches (before 06:00) to previous day
-    df_full['AdjustedDate'] = df_full['Datetime_temp'].apply(
-        lambda dt: (dt - timedelta(days=1)).date() if dt.hour < 8 else dt.date()
-    )
+    # Shift early-morning matches (before 08:00 UTC) to the previous day's
+    # batch -- see date_utils.py. Previously computed inline here only;
+    # now shared with best_bets_selector.py and post_from_dropbox.py so
+    # all three agree on which day a given match belongs to.
+    df_full['AdjustedDate'] = date_utils.adjusted_date_series(df_full['Date'], df_full['Time'])
 
     # Loop through each unique date
     for match_date, df_date in df_full.groupby("AdjustedDate"):
@@ -394,7 +393,7 @@ def main():
             top_picks = df_date.sort_values(by="PredValue", ascending=False).head(5)
             logger.log('warning', f"No matches met criteria for {date_str}, fallback to top 5 by Prediction %")
         
-        df_date = df_date.drop(columns=["Datetime_temp", "AdjustedDate"])
+        df_date = df_date.drop(columns=["AdjustedDate"])
 
         # Fully deduped (1 pick/match) -- drives the Telegram VIP text and
         # the free-tier selection, where a match can only sensibly occupy

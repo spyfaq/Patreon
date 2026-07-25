@@ -38,7 +38,7 @@ jobs:
       - name: Check Major League Fixtures
         id: check_major_fixtures
         continue-on-error: true
-        run: python check_fixtures.py majorleague --retries 12 --interval 600
+        run: python check_fixtures.py majorleague --retries 3 --interval 600
 
       - name: Run Major League Predictions
         if: steps.check_major_fixtures.outputs.fixtures_found == 'true'
@@ -81,7 +81,7 @@ jobs:
       - name: Check Minor League Fixtures
         id: check_minor_fixtures
         continue-on-error: true
-        run: python check_fixtures.py minorleague --retries 12 --interval 600
+        run: python check_fixtures.py minorleague --retries 3 --interval 600
 
       - name: Run Minor League Predictions
         if: steps.check_minor_fixtures.outputs.fixtures_found == 'true'

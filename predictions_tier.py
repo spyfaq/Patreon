@@ -229,39 +229,70 @@ def parse_hist(s):
     except Exception:
         return np.nan
 
-def dedup_one_per_match(top_picks, limit=None):
-    """One prediction per match, keeping only the single best-quality
-    market for that fixture. Showing both '1' (Home Win) and '2' (Away
-    Win) for the same match -- or Over 1.5/2.5/3.5 all stacked together --
-    doesn't read as a clear tip, just noise.
+# The only markets that are genuinely mutually exclusive for a single
+# match -- at most one of these can be true, so showing more than one as
+# a "tip" for the same fixture is contradictory, not just redundant.
+# Everything else (Over/Under thresholds, BTTS, home/away-specific overs)
+# can coexist for the same match without contradiction (e.g. Over 2.5
+# Goals and Both Teams to Score can both be correct at once), so those
+# are left as separate lines rather than collapsed.
+MUTUALLY_EXCLUSIVE_OUTCOMES = {"Home Win", "Draw", "Away Win"}
 
-    Ranking: (1) a >80% pick with no H2H history available, (2) picks
-    with H2H history, by Prediction % then History %, (3) everything
-    else. `limit=None` keeps every qualifying match (used for the Excel
-    export); pass a number (e.g. 10) to cap it, as the Telegram VIP text
-    does to stay readable."""
+
+def _rank(top_picks):
+    """Shared quality ranking used by both dedup_one_per_match() and
+    resolve_match_conflicts(). Priority: (1) a >80% pick with no H2H
+    history available, (2) picks with H2H history, by Prediction % then
+    History %, (3) everything else."""
     df = top_picks.copy()
-
-    # priority: 1 = special (Pred>80 & Hist is NaN), 2 = normal (Hist not NaN), 3 = other (Hist NaN but Pred <= 80)
     df['priority'] = np.where(
         (df['PredValue'] > 80) & (df['HistValue'].isna()), 1,
         np.where(df['HistValue'].notna(), 2, 3)
     )
-
-    # create a sort-friendly Hist column (fill remaining NaNs with -1 so they sort last)
     df['Hist_for_sort'] = df['HistValue'].fillna(-1)
-
-    # sort by priority (asc), PredValue (desc), Hist_for_sort (desc)
-    df_sorted = df.sort_values(
+    return df.sort_values(
         by=['priority', 'PredValue', 'Hist_for_sort'],
         ascending=[True, False, False]
     )
+
+
+def dedup_one_per_match(top_picks, limit=None):
+    """One prediction per match, keeping only the single best-quality
+    market for that fixture. Used where a match can only sensibly occupy
+    one slot: the Telegram VIP text (kept short/scannable) and the
+    free-tier selection (each of the 3 public matches gets its one best
+    pick). `limit=None` keeps every qualifying match; pass a number (e.g.
+    10) to cap it, as the Telegram VIP text does to stay readable."""
+    df_sorted = _rank(top_picks)
 
     # keep only one row per match (best by the sorting)
     deduped = df_sorted.drop_duplicates(subset='Match', keep='first').drop(
         columns=['priority', 'Hist_for_sort']
     )
     return deduped.head(limit) if limit is not None else deduped
+
+
+def resolve_match_conflicts(top_picks):
+    """Multiple qualifying markets per match are kept (e.g. a match can
+    show both 'Over 2.5 Goals' and 'Both Teams to Score' as separate
+    lines -- they're not contradictory, both can be true at once).
+    The one thing that IS resolved: 'Home Win' / 'Draw' / 'Away Win' are
+    mutually exclusive by definition, so if more than one qualified for
+    the same match, only the single best-quality one of those three is
+    kept -- every other market for that match is left untouched."""
+    df_sorted = _rank(top_picks)
+
+    is_outcome = df_sorted['Prediction'].isin(MUTUALLY_EXCLUSIVE_OUTCOMES)
+    outcome_rows = df_sorted[is_outcome].drop_duplicates(subset='Match', keep='first')
+    other_rows = df_sorted[~is_outcome]
+
+    # Recombine and re-sort so the output still reads best-first, same as
+    # dedup_one_per_match, just without collapsing non-outcome markets.
+    resolved = pd.concat([outcome_rows, other_rows]).sort_values(
+        by=['priority', 'PredValue', 'Hist_for_sort'],
+        ascending=[True, False, False]
+    )
+    return resolved.drop(columns=['priority', 'Hist_for_sort'])
 
 def main():
     filename = newest_predictions()
@@ -362,16 +393,13 @@ def main():
         
         df_date = df_date.drop(columns=["Datetime_temp", "AdjustedDate"])
 
-        # One prediction per match, quality-ranked, no cap -- the
-        # canonical VIP-quality list. Combos were already dropped on
-        # load, so every row here is a genuine single-market tip.
+        # Fully deduped (1 pick/match) -- drives the Telegram VIP text and
+        # the free-tier selection, where a match can only sensibly occupy
+        # one slot.
         vip_all = dedup_one_per_match(top_picks, limit=None)
 
         # Tier 1: 3 random matches from the VIP-quality list, using each
-        # match's single best pick (there's only one now) -- previously
-        # this sampled independently from top_picks (which still had
-        # multiple markets per match), so the free-tier pick could differ
-        # from what the VIP list/Excel showed for the same match.
+        # match's single best pick.
         logger.log('info', f'Creating Public: 3 daily picks..')
         public = vip_all.sample(n=min(3, len(vip_all)), random_state=42)
 
@@ -402,16 +430,25 @@ def main():
             vip_tg += f"• <b>{row['Match']}</b> → {row['Prediction']} ({row['Prediction %']})\n"
             vip_tg += f"  <i>{row['Reasoning']}</i>\n"
 
-        # Mark the 3 free-tier picks within the VIP-quality list itself --
-        # this is now the same list the Excel is built from, so the flag
-        # is consistent with what actually got posted to the free tier.
-        vip_all["PickedforFree"] = vip_all["Match"].isin(public["Match"])
+        # Excel: every qualifying market per match, EXCEPT Home Win /
+        # Draw / Away Win, where only the single best of the three is
+        # kept (they're mutually exclusive -- at most one can be true).
+        # Everything else (Over/Under thresholds, BTTS, home/away-specific
+        # overs) is left as separate lines, since those aren't
+        # contradictory and a tipster reasonably shows several angles on
+        # the same match. Combos were already dropped on load.
+        excel_picks = resolve_match_conflicts(top_picks)
 
-        # Excel = the full VIP-quality list (every qualifying match, one
-        # pick each, no combos) -- previously this was df_date, the raw
-        # per-market output for every match in the day regardless of
-        # quality, which is what produced 20+ rows for a single fixture.
-        df_save = vip_all[["Division", "Date", "Time", "HomeTeam", "AwayTeam", "Prediction", "Prediction %", "History H2H", "HomeForm", "AwayForm", "Reasoning", "HomeTeam Stats", "AwayTeam Stats", "PickedforFree"]]
+        # Matched on (Match, Prediction), not just Match, since a match
+        # can now have more than one Excel row -- only the specific pick
+        # that was actually posted publicly should be flagged True.
+        public_pairs = set(zip(public["Match"], public["Prediction"]))
+        excel_picks = excel_picks.copy()
+        excel_picks["PickedforFree"] = excel_picks.apply(
+            lambda row: (row["Match"], row["Prediction"]) in public_pairs, axis=1
+        )
+
+        df_save = excel_picks[["Division", "Date", "Time", "HomeTeam", "AwayTeam", "Prediction", "Prediction %", "History H2H", "HomeForm", "AwayForm", "Reasoning", "HomeTeam Stats", "AwayTeam Stats", "PickedforFree"]]
         # Telegram text, and CSV
         with open(f"{PUBLISHPATH}/VIP_{date_str}.txt", "w", encoding="utf-8") as f:
             f.write(vip_tg)

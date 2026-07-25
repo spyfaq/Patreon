@@ -1,0 +1,49 @@
+name: Settle Results
+
+# Runs daily, 1 hour before predictions_pipeline.yml's daily 11:00 UTC
+# generation run -- settles yesterday's single-day batch (each batch is now
+# exactly one day's matches, thanks to the 1-day window cap, so by the next
+# morning it has fully played out).
+on:
+  schedule:
+    - cron: "00 10 * * *" # Daily at 13:00 Greek (1h before generation)
+  workflow_dispatch: # Allow manual run
+
+permissions:
+  contents: write
+
+jobs:
+  settle:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Update results (settle outstanding VIP files in history/)
+        env:
+          FOOTBALL_DATA_ORG_TOKEN: ${{ secrets.FOOTBALL_DATA_ORG_TOKEN }}
+        run: python update_results.py
+
+      - name: Rebuild statistics/dashboard charts
+        run: python predictions_statistics.py
+
+      - name: Commit updated history/
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add history/
+          if git diff --cached --quiet; then
+            echo "Nothing new to commit."
+          else
+            git commit -m "Settle results $(date -u +%F)"
+            git push
+          fi

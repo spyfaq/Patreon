@@ -145,35 +145,6 @@ def fetch_historical_matches(code, seasons_back=4, logger=None):
     return df
 
 
-def fetch_all_matches_on_date(date_str, status="SCHEDULED", logger=None):
-    """Matches across EVERY competition available to this token on one
-    date, in a single request (v4's top-level /matches endpoint), rather
-    than looping per-competition and burning the 10 req/min free budget.
-
-    This is what makes football-data.org usable as a cheap independent
-    "are there games that day?" oracle for leagues whose actual
-    prediction data comes from football-data.co.uk -- see check_fixtures.py.
-    Returns a DataFrame with a 'Competition' column holding each match's
-    competition code."""
-    try:
-        data = api_get("/matches", params={
-            "dateFrom": date_str, "dateTo": date_str, "status": status
-        }, logger=logger)
-    except Exception as e:
-        if logger:
-            logger.log('warning', "Could not fetch cross-competition matches", info=str(e))
-        return pd.DataFrame()
-
-    matches = data.get('matches', [])
-    df = matches_to_df(matches)
-    if df.empty:
-        return df
-    df['Competition'] = [
-        (m.get('competition') or {}).get('code') for m in matches
-    ]
-    return df
-
-
 def fetch_matches_on_date(code, date_str, status="SCHEDULED", logger=None):
     """Matches for a single competition on a single ISO date (used for the
     1-day fixture window the rest of the pipeline uses)."""

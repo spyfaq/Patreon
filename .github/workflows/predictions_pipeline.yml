@@ -38,11 +38,6 @@ jobs:
       - name: Check Major League Fixtures
         id: check_major_fixtures
         continue-on-error: true
-        env:
-          # Used only for the independent "are there games tomorrow?"
-          # cross-check -- the fixtures themselves still come from
-          # football-data.co.uk. Absent token just falls back to retrying.
-          FOOTBALL_DATA_ORG_TOKEN: ${{ secrets.FOOTBALL_DATA_ORG_TOKEN }}
         run: python check_fixtures.py majorleague --retries 3 --interval 600
 
       - name: Run Major League Predictions
@@ -86,11 +81,6 @@ jobs:
       - name: Check Minor League Fixtures
         id: check_minor_fixtures
         continue-on-error: true
-        env:
-          # Used only for the independent "are there games tomorrow?"
-          # cross-check -- the fixtures themselves still come from
-          # football-data.co.uk. Absent token just falls back to retrying.
-          FOOTBALL_DATA_ORG_TOKEN: ${{ secrets.FOOTBALL_DATA_ORG_TOKEN }}
         run: python check_fixtures.py minorleague --retries 3 --interval 600
 
       - name: Run Minor League Predictions

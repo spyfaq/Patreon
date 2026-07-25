@@ -32,53 +32,48 @@ def newest_predictions(sever) -> str:
         logger.log('warning', f'File for {sever} not found..')
         return('\\99999999')
     
-def accumulate_data(majorfile, minorfile):
-    logger.log('info', f'Trying to match major n minor league files..')
-    
+def accumulate_data(files: dict) -> pd.DataFrame:
+    """Merge prediction files from multiple sources (major/minor/international).
+    `files` maps a source name to its file path, or the '\\99999999' sentinel
+    if that source produced nothing today (e.g. no international fixtures
+    outside a tournament window -- this is expected, not an error).
+    """
+    logger.log('info', f'Trying to match prediction files from: {list(files.keys())}..')
+
     def str_to_date(date_str):
-        print(date_str)
         return datetime.datetime.strptime(date_str, '%d%m%Y')
-    
 
-    # Extract dates from the filenames
-    if '99999999' not in majorfile and '99999999' not in minorfile:
+    available = {name: path for name, path in files.items() if '99999999' not in path}
 
-        major_dates = re.findall(r'\d{8}', majorfile)
-        minor_dates = re.findall(r'\d{8}', minorfile)
+    if not available:
+        logger.log('warning', 'No prediction files found from any source today..')
+        return pd.DataFrame()
 
-        # Convert dates to datetime objects
-        major_start_date = str_to_date(major_dates[0])
-        major_end_date = str_to_date(major_dates[1])
-        minor_start_date = str_to_date(minor_dates[0])
-        minor_end_date = str_to_date(minor_dates[1])
+    if len(available) == 1:
+        name, path = next(iter(available.items()))
+        logger.log('warning', f'Only {name} predictions found today')
+        return pd.read_csv(path)
 
-        # Check if dates are within 1 day
-        if (abs((major_start_date - minor_start_date).days) <= 1 or abs((major_end_date - minor_end_date).days) <= 1):
-            major_df = pd.read_csv(majorfile)
-            minor_df = pd.read_csv(minorfile)
-        
-            concatenated_df = pd.concat([major_df, minor_df], ignore_index=True)
+    date_ranges = {}
+    for name, path in available.items():
+        dates = re.findall(r'\d{8}', path)
+        date_ranges[name] = (str_to_date(dates[0]), str_to_date(dates[1]))
 
-            logger.log('info', f'Matched major n minor league files..')
-            return concatenated_df
-        else:
-            # Determine which file has the latest data
-            if major_end_date > minor_end_date:
-                latest_df = pd.read_csv(majorfile)
-            else:
-                latest_df = pd.read_csv(minorfile)
+    starts = [r[0] for r in date_ranges.values()]
+    ends = [r[1] for r in date_ranges.values()]
+    max_spread = max(max(starts) - min(starts), max(ends) - min(ends))
 
-            logger.log('warning', f'Didnt match major n minor league files.. Keeping last file', info=latest_df)
-            return latest_df
+    if max_spread <= datetime.timedelta(days=1):
+        dfs = [pd.read_csv(path) for path in available.values()]
+        logger.log('info', f'Matched {list(available.keys())} prediction files..')
+        return pd.concat(dfs, ignore_index=True)
     else:
-        if '99999999' in majorfile: 
-            logger.log('warning', f'Only minor leagues found')
-            latest_df = pd.read_csv(minorfile)
-            return latest_df
-        else:
-            logger.log('warning', f'Only major leagues found')
-            latest_df = pd.read_csv(majorfile)
-            return latest_df
+        # Sources disagree on date range by more than a day -- keep only
+        # whichever has the most recent data rather than mixing stale and
+        # fresh predictions together.
+        latest_name = max(date_ranges, key=lambda n: date_ranges[n][1])
+        logger.log('warning', f'Prediction files did not align in date.. keeping only {latest_name}')
+        return pd.read_csv(available[latest_name])
         
 def saveto_csv(towrite):
     logger.log('info', f'Saving results..')
@@ -165,20 +160,26 @@ def odd_addition(df):
     return(df_result)
 
 def merging_func():
-    last_majorfile = newest_predictions('major')
-    last_minorfile = newest_predictions('minor')
-    concdata = accumulate_data(last_majorfile, last_minorfile)
+    source_files = {
+        'major': newest_predictions('major'),
+        'minor': newest_predictions('minor'),
+        'international': newest_predictions('international'),
+    }
+    concdata = accumulate_data(source_files)
+
+    if concdata.empty:
+        logger.log('warning', 'Nothing to merge today (no source produced predictions).')
+        return
+
     finaldf = odd_addition(concdata)
     saveto_csv(finaldf)
 
-    logger.log('info', f'Deleting interm files..', info=f'{last_majorfile}, {last_minorfile}')
+    logger.log('info', f'Deleting interm files..', info=str(source_files))
 
-    if last_majorfile != '\\99999999':
-        os.remove(last_majorfile)
-    
-    if last_minorfile != '\\99999999':
-        os.remove(last_minorfile)
-    
+    for path in source_files.values():
+        if path != '\\99999999':
+            os.remove(path)
+
     logger.log('info', f'Process completed..')
     return
 

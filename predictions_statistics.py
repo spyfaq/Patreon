@@ -6,11 +6,18 @@ import glob
 import os
 
 # ========== USER INPUT ==========
-DATA_PATH = "publish/"  # folder where your Excel files live
+DATA_PATH = "history/"  # folder where your Excel files live (searched recursively)
 # =================================
 
+# fig.show() tries to pop a browser window -- fine on a local machine, but
+# there is no display on a GitHub Actions runner. CI=true is set
+# automatically by GitHub Actions, so this skips .show() there without
+# needing any new secrets/config, while leaving local/manual runs unchanged.
+SHOW_PLOTS = not os.environ.get("CI")
+os.makedirs("pics", exist_ok=True)
+
 # Step 1: Load all Excel files matching pattern
-all_files = glob.glob(os.path.join(DATA_PATH, "update_VIP_*.xlsx"))
+all_files = glob.glob(os.path.join(DATA_PATH, "**", "update_VIP_*.xlsx"), recursive=True)
 
 dfs = []
 for f in all_files:
@@ -92,7 +99,8 @@ fig_candle.update_layout(
     font=dict(family="Arial", size=14, color="white"),
     hovermode="x unified"
 )
-fig_candle.show()
+if SHOW_PLOTS:
+    fig_candle.show()
 fig_candle.write_image("pics/plot1.png", scale=3)
 
 # ---------- Scatter plot for teams ----------
@@ -158,7 +166,8 @@ fig_combined.update_layout(
     legend=dict(title="Prediction Type")
 )
 
-fig_combined.show()
+if SHOW_PLOTS:
+    fig_combined.show()
 
 
 # --- Free vs VIP Accuracy Area
@@ -205,7 +214,8 @@ fig_weekly.update_xaxes(
     #tickangle=45              # optional: tilt for readability
 )
 
-fig_weekly.show()
+if SHOW_PLOTS:
+    fig_weekly.show()
 
 
 # --- Division Bars (Free Picks Performance)
@@ -252,7 +262,8 @@ fig_bars.update_layout(
     legend=dict(title="Prediction Type")
 )
 
-fig_bars.show()
+if SHOW_PLOTS:
+    fig_bars.show()
 
 
 # --- VIP vs Free cumulative performance
@@ -328,7 +339,8 @@ fig.update_xaxes(
     row=2, col=1
 )
 fig.write_image("pics/plot2.png", scale=3)
-fig.show()
+if SHOW_PLOTS:
+    fig.show()
 
 
 # --- ROI
@@ -370,6 +382,7 @@ fig_roi.update_traces(
     insidetextanchor="end",
     textfont=dict(color="white", size=12)
 )
-fig_roi.show()
+if SHOW_PLOTS:
+    fig_roi.show()
 fig_roi.write_image("pics/plot3.png", scale=3)
 pass

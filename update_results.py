@@ -48,15 +48,17 @@ LEAGUES2 = {
 """
 Path to save  data
 """
-DATAPATH = 'publish/'
+DATAPATH = 'history/'
 LOGPATH = 'logs/mine/'
 LOGNAME = '{date}_my_results_logs'
 
 def find_VIP_files():
     print(f'Looking for VIP files to update ..')
-    # Look for files named exactly like "VIP_date.xlsx"
-    search_pattern = os.path.join(DATAPATH, "VIP_*.xlsx")
-    return glob.glob(search_pattern)
+    # Look recursively for files named "VIP_date.xlsx" in any dated
+    # subfolder under history/ (e.g. history/2026-08-01_2026-08-04/VIP_*.xlsx),
+    # since predictions now accumulate across many separate pipeline runs.
+    search_pattern = os.path.join(DATAPATH, "**", "VIP_*.xlsx")
+    return glob.glob(search_pattern, recursive=True)
 
 def download_league_data(url):
     try:

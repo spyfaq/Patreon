@@ -6,6 +6,9 @@ on:
     - cron: "30 13 * * 5" # Friday at 16:30 Greek
   workflow_dispatch: # Allow manual run
 
+permissions:
+  contents: write  # needed so the 'posting' job can commit predictions into history/
+
 jobs:
   majorleague:
     runs-on: ubuntu-latest
@@ -182,3 +185,24 @@ jobs:
 
       - name: Upload_to_dropbox
         run: python upload_to_dropbox.py
+
+      - name: Save predictions to history/
+        run: |
+          BATCH_DIR="history/$(date -u +%F)"
+          mkdir -p "$BATCH_DIR"
+          # publish/*.xlsx and *.txt are what update_results.py / predictions_statistics.py
+          # look for later -- committing them here is what lets a scheduled run
+          # days from now (Tuesday's job settling Friday's batch, or vice versa)
+          # find this batch, since GitHub Actions runners don't keep local
+          # disk between separate workflow runs.
+          cp publish/*.xlsx publish/*.txt "$BATCH_DIR"/ 2>/dev/null || true
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add history/
+          if git diff --cached --quiet; then
+            echo "Nothing new to commit."
+          else
+            git commit -m "Add predictions batch $(date -u +%F) to history/"
+            git push
+          fi

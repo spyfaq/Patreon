@@ -326,24 +326,49 @@ def resultdef(result, ht, at, divis, mdata, mtime, standings, old_df, lgdata, TH
             'aO2_5': aO2_5,
             }
 
+    # Bet builder: exact joint probabilities for every {1,X,2} x goal-market
+    # combo, computed directly from the score grid rather than assuming
+    # independence (see majorleague_predictions.py for the full rationale).
+    side_masks = {'1': gi > gj, 'X': gi == gj, '2': gi < gj}
+    goal_masks = {
+        'O1_5': total_goals > 1, 'O2_5': total_goals > 2, 'O3_5': total_goals > 3,
+        'GG': (gi >= 1) & (gj >= 1),
+        'hO1_5': gi >= 2, 'hO2_5': gi >= 3,
+        'aO1_5': gj >= 2, 'aO2_5': gj >= 3,
+    }
+    combo_dict = {}
+    for side_name, side_mask in side_masks.items():
+        for goal_name, goal_mask in goal_masks.items():
+            combo_dict[f'{side_name}+{goal_name}'] = result[side_mask & goal_mask].sum()
+
     outcome = pd.DataFrame(columns=["Division", "Date", "Time", "HomeTeam", "AwayTeam", "Prediction", "Prediction %", 
                              "History %", "HomeTeam Stats", "AwayTeam Stats", "HomeForm", "AwayForm"])
     
     logger.log('info', "Calculating class history", info=str(f'{ht}-{at}'))
     hist_dict = historyfunc(path, ht, at, old_df)
     rows = []
-    for res in dict.keys():
-        if dict[res] > THRESH:
+
+    # Same rationale as majorleague_predictions.py: combos are intersections
+    # so they're inherently lower-probability than either leg alone; this is
+    # just a sanity floor, real ranking happens in best_bets_selector.py.
+    COMBO_THRESH = 0.10
+
+    for res in list(dict.keys()) + list(combo_dict.keys()):
+        is_combo = res in combo_dict
+        val = combo_dict[res] if is_combo else dict[res]
+        this_thresh = COMBO_THRESH if is_combo else THRESH
+        if val > this_thresh:
             try:
                 hist_perc = hist_dict[res]
             except:
-                logger.log('warning', f"No history data for {ht}-{at}",)
+                if not is_combo:
+                    logger.log('warning', f"No history data for {ht}-{at}",)
                 hist_perc = '-'
 
             homestats = standings.loc[standings['team'] == ht, 'summary_home'].squeeze()
             awaystats = standings.loc[standings['team'] == at, 'summary_away'].squeeze()
 
-            rows.append([divis, mdata, mtime, ht, at, res, dict[res].round(2), hist_perc, homestats, awaystats, '', ''])
+            rows.append([divis, mdata, mtime, ht, at, res, val.round(2), hist_perc, homestats, awaystats, '', ''])
 
     if rows:
         outcome = pd.DataFrame(rows, columns=["Division", "Date", "Time", "HomeTeam", "AwayTeam", "Prediction", "Prediction %",
@@ -355,9 +380,11 @@ def resultdef(result, ht, at, divis, mdata, mtime, standings, old_df, lgdata, TH
 
         # Function to select correct form based on prediction type
         def pick_form(row):
-            if row['Prediction'] in ['1', '2', 'X']:
+            pred = row['Prediction']
+            goal_leg = pred.split('+')[1] if '+' in pred else pred
+            if pred in ['1', '2', 'X']:
                 return pd.Series([row['HomeWinForm_home'], row['AwayWinForm_away']])
-            elif row['Prediction'] in ['O1_5', 'O2_5', 'O3_5', 'hO1_5', 'hO2_5', 'aO1_5', 'aO2_5']:
+            elif goal_leg in ['O1_5', 'O2_5', 'O3_5', 'GG', 'hO1_5', 'hO2_5', 'aO1_5', 'aO2_5']:
                 return pd.Series([row['HomeGoalsForm_home'], row['AwayGoalsForm_away']])
             else:
                 return pd.Series([None, None])

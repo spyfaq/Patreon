@@ -13,6 +13,18 @@ Why edge instead of raw confidence:
     A 55%-confidence pick at odds of 2.20 (implied ~45%) is a good bet.
     Betting on raw confidence alone ignores the price you're getting.
 
+Also builds a BET BUILDER section: same-match combos (e.g. Home Win +
+Over 2.5 Goals) using the EXACT joint probability computed upstream
+from the Dixon-Coles score grid (majorleague_predictions.py /
+minorleague_predictions.py), not an independence assumption. Combos
+built from legs we have real odds for (1X2 + Over/Under 2.5) get
+compared against a de-vigged "naive independence" baseline built from
+those same singles odds -- there's no bookmaker-quoted price for the
+exact combo in our data source, so this baseline is the best available
+reference point, not a real market price. Combos involving unpriced
+legs (GG, O1.5/O3.5, home/away-specific) are still shown with the
+model's probability, just without an edge/EV ranking.
+
 Pipeline position: run this AFTER predictions_merger.py has produced
 the combined `my_prediction_data_{date1}_{date2}.csv` file.
 
@@ -44,10 +56,24 @@ MIN_EDGE = 0.03
 # longshots with technically-large edge but low hit rate.
 MIN_MODEL_PROB = 0.45
 
+# Bet builder (combo) selection is intentionally a smaller, supplementary
+# list: combos are intersections of two events, so they're inherently
+# lower-probability than either single-market pick alone.
+COMBO_MIN_PICKS = 1
+COMBO_MAX_PICKS = 3
+COMBO_MIN_EDGE = 0.03
+COMBO_MIN_MODEL_PROB = 0.25
+
 # Prediction codes we can currently price against bookmaker odds.
 # Note: only 'O2_5' (Over 2.5) exists as an actual prediction code the model
 # emits - it never predicts "Under", so there's no 'U2_5' row to price.
 PRICED_MARKETS = {'1', 'X', '2', 'O2_5'}
+
+# Of the goal-market legs a combo can pair with a 1X2 side, only O2_5 has a
+# real bookmaker odd behind it in our data source (football-data.co.uk
+# publishes 1X2 + O/U 2.5 only). Combos using any other goal leg can still
+# be shown (model probability only) but can't be priced against a market.
+PRICED_COMBO_GOAL_LEGS = {'O2_5'}
 
 PREDICTION_LABELS = {
     "O1_5": "Over 1.5 Goals", "O2_5": "Over 2.5 Goals", "O3_5": "Over 3.5 Goals",
@@ -55,6 +81,15 @@ PREDICTION_LABELS = {
     "aO1_5": "Away team Over 1.5 Goals", "aO2_5": "Away team Over 2.5 Goals",
     "hO1_5": "Home team Over 1.5 Goals", "hO2_5": "Home team Over 2.5 Goals",
 }
+
+
+def prediction_label(pred: str) -> str:
+    """Human-readable label for any prediction code, including bet-builder
+    combos (e.g. '1+O2_5' -> 'Home Win + Over 2.5 Goals')."""
+    if '+' in pred:
+        side, goal_leg = pred.split('+', 1)
+        return f"{PREDICTION_LABELS.get(side, side)} + {PREDICTION_LABELS.get(goal_leg, goal_leg)}"
+    return PREDICTION_LABELS.get(pred, pred)
 
 
 def newest_predictions() -> str:
@@ -139,6 +174,9 @@ def attach_edges(df: pd.DataFrame) -> pd.DataFrame:
     bookmaker's de-vigged probability. Rows for markets we can't price
     (no odds available, e.g. GG, hO1_5, aO2_5) get edge = NaN and are
     excluded from the value-bet ranking, not silently treated as zero-edge.
+    Bet-builder combo rows (Prediction contains '+') are left alone here --
+    see attach_combo_edges below, which prices them against a baseline
+    instead of a real market odd (none exists for combos in our data).
     """
     df = df.copy()
     df['MarketOdd'] = np.nan
@@ -160,6 +198,48 @@ def attach_edges(df: pd.DataFrame) -> pd.DataFrame:
             df.at[idx, 'MarketOdd'] = odd_val
             df.at[idx, 'ImpliedProb'] = implied
             df.at[idx, 'Edge'] = row['ModelProb'] - implied
+
+    return df
+
+
+def attach_combo_edges(df: pd.DataFrame) -> pd.DataFrame:
+    """Bet builder pricing: for combo rows (Prediction like '1+O2_5'), build
+    a "naive independence" baseline by multiplying the de-vigged single-leg
+    probabilities from real odds, then compare the model's EXACT joint
+    probability (computed from the score grid upstream) against that
+    baseline. The gap between them is informative on its own: since the
+    legs are correlated, the model's exact joint probability being higher
+    than the naive-independence baseline is expected for a well-correlated
+    combo (e.g. home win + over 2.5), and the size of that gap reflects how
+    much correlation the model is capturing that a naive multiplication
+    would miss.
+
+    This is NOT a real bookmaker-quoted price for the combo -- our data
+    source (football-data.co.uk) doesn't publish bet-builder odds, only
+    1X2 and O/U 2.5 singles. Treat BaselineOdd/ComboEdge/ComboEV as a
+    reference point, not a guaranteed price you'd actually get.
+    """
+    df = df.copy()
+    df['BaselineProb'] = np.nan
+    df['BaselineOdd'] = np.nan
+    df['ComboEdge'] = np.nan
+
+    is_combo = df['Prediction'].str.contains(r'\+', regex=True, na=False)
+    for idx, row in df[is_combo].iterrows():
+        side, goal_leg = row['Prediction'].split('+', 1)
+        if goal_leg not in PRICED_COMBO_GOAL_LEGS:
+            continue  # no odds behind this leg (e.g. GG, O1_5, hO2_5) -- model prob only
+
+        odds_1x2 = implied_prob_1x2(row)
+        odds_ou = implied_prob_ou(row)
+        side_prob = odds_1x2.get(side)
+        goal_prob = odds_ou.get(goal_leg)
+
+        if pd.notna(side_prob) and pd.notna(goal_prob):
+            baseline = side_prob * goal_prob
+            df.at[idx, 'BaselineProb'] = baseline
+            df.at[idx, 'BaselineOdd'] = (1.0 / baseline) if baseline > 0 else np.nan
+            df.at[idx, 'ComboEdge'] = row['ModelProb'] - baseline
 
     return df
 
@@ -191,27 +271,78 @@ def select_best_bets(df: pd.DataFrame) -> pd.DataFrame:
     priced = priced.sort_values('EV', ascending=False).drop_duplicates(subset='Match', keep='first')
 
     priced = priced.sort_values('EV', ascending=False)
-    n_picks = min(MAX_PICKS, max(MIN_PICKS if len(priced) >= MIN_PICKS else len(priced), 0))
+    if len(priced) < MIN_PICKS:
+        logger.log('info', f'Only {len(priced)} value bet(s) cleared the threshold today (below the usual {MIN_PICKS}-{MAX_PICKS} target).')
+    n_picks = min(MAX_PICKS, len(priced))
     best = priced.head(n_picks).copy()
 
-    best['PredictionLabel'] = best['Prediction'].map(PREDICTION_LABELS).fillna(best['Prediction'])
+    best['PredictionLabel'] = best['Prediction'].apply(prediction_label)
     return best
 
 
-def format_telegram(best: pd.DataFrame, date_str: str) -> str:
-    if best.empty:
+def select_best_combo_bets(df: pd.DataFrame) -> pd.DataFrame:
+    """Bet builder selection: same idea as select_best_bets, restricted to
+    combo rows priced against the independence baseline (see
+    attach_combo_edges). Kept as a separate, smaller supplementary list
+    rather than mixed into the main single-market picks.
+    """
+    is_combo = df['Prediction'].str.contains(r'\+', regex=True, na=False)
+    priced = df[is_combo & df['ComboEdge'].notna()].copy()
+    priced = priced[
+        (priced['ComboEdge'] >= COMBO_MIN_EDGE) &
+        (priced['ModelProb'] >= COMBO_MIN_MODEL_PROB)
+    ]
+
+    if priced.empty:
+        logger.log('info', 'No bet-builder combos cleared the edge/probability thresholds today.')
+        return priced
+
+    priced['ComboEV'] = priced.apply(
+        lambda r: expected_value_per_unit_stake(r['ModelProb'], r['BaselineOdd']), axis=1
+    )
+
+    # One combo pick per match: keep the highest-EV combo for that fixture
+    priced['Match'] = priced['HomeTeam'] + ' vs ' + priced['AwayTeam']
+    priced = priced.sort_values('ComboEV', ascending=False).drop_duplicates(subset='Match', keep='first')
+
+    priced = priced.sort_values('ComboEV', ascending=False)
+    if len(priced) < COMBO_MIN_PICKS:
+        logger.log('info', f'Only {len(priced)} bet-builder combo(s) cleared the threshold today.')
+    n_picks = min(COMBO_MAX_PICKS, len(priced))
+    best = priced.head(n_picks).copy()
+
+    best['PredictionLabel'] = best['Prediction'].apply(prediction_label)
+    return best
+
+
+def format_telegram(best: pd.DataFrame, combo_best: pd.DataFrame, date_str: str) -> str:
+    if best.empty and (combo_best is None or combo_best.empty):
         return f"⚠️ <b>No qualifying value bets found for {date_str}.</b>\nNo picks met the minimum edge threshold today — sitting this one out is the right call."
 
-    msg = f"🎯 <b>Best Bets — {date_str}</b>\n<i>Ranked by model edge vs bookmaker odds, not just confidence</i>\n\n"
-    for _, row in best.iterrows():
-        msg += (
-            f"⚽ <b>{row['Match']}</b> ({row['Division']})\n"
-            f"   → {row['PredictionLabel']} @ {row['MarketOdd']:.2f}\n"
-            f"   Model: {row['ModelProb']*100:.0f}% | Market implies: {row['ImpliedProb']*100:.0f}% "
-            f"| Edge: +{row['Edge']*100:.1f}pp | EV: {row['EV']:+.2f} per unit\n\n"
-        )
-    msg += "📌 Edge = how much more likely our model thinks this is vs. what the odds imply. Higher edge and EV means better long-run value — not a guarantee on any single bet."
-    return msg
+    msg = ""
+    if not best.empty:
+        msg += f"🎯 <b>Best Bets — {date_str}</b>\n<i>Ranked by model edge vs bookmaker odds, not just confidence</i>\n\n"
+        for _, row in best.iterrows():
+            msg += (
+                f"⚽ <b>{row['Match']}</b> ({row['Division']})\n"
+                f"   → {row['PredictionLabel']} @ {row['MarketOdd']:.2f}\n"
+                f"   Model: {row['ModelProb']*100:.0f}% | Market implies: {row['ImpliedProb']*100:.0f}% "
+                f"| Edge: +{row['Edge']*100:.1f}pp | EV: {row['EV']:+.2f} per unit\n\n"
+            )
+        msg += "📌 Edge = how much more likely our model thinks this is vs. what the odds imply. Higher edge and EV means better long-run value — not a guarantee on any single bet.\n\n"
+
+    if combo_best is not None and not combo_best.empty:
+        msg += f"🧩 <b>Bet Builder Picks — {date_str}</b>\n<i>Same-match combos, priced with the model's exact joint probability (not a naive multiply)</i>\n\n"
+        for _, row in combo_best.iterrows():
+            msg += (
+                f"⚽ <b>{row['Match']}</b> ({row['Division']})\n"
+                f"   → {row['PredictionLabel']} (~{row['BaselineOdd']:.2f} baseline)\n"
+                f"   Model: {row['ModelProb']*100:.0f}% | Naive-independence baseline: {row['BaselineProb']*100:.0f}% "
+                f"| Edge: +{row['ComboEdge']*100:.1f}pp\n\n"
+            )
+        msg += "📌 Bet builder odds/baselines above are estimated from single-market odds (no bookmaker publishes a price for the exact combo) — treat as a reference point, not a guaranteed price."
+
+    return msg.strip()
 
 
 def main():
@@ -223,10 +354,13 @@ def main():
     df = df.merge(odds, on=['HomeTeam', 'AwayTeam'], how='left')
 
     df = attach_edges(df)
+    df = attach_combo_edges(df)
+
     best = select_best_bets(df)
+    combo_best = select_best_combo_bets(df)
 
     date_str = datetime.date.today().strftime('%Y-%m-%d')
-    tg_text = format_telegram(best, date_str)
+    tg_text = format_telegram(best, combo_best, date_str)
 
     if not os.path.exists(PUBLISHPATH):
         os.makedirs(PUBLISHPATH)
@@ -241,6 +375,14 @@ def main():
         logger.log('info', f'Selected {len(best)} best bets.', info=str(best["Match"].tolist()))
     else:
         logger.log('warning', 'No best bets selected today.')
+
+    if not combo_best.empty:
+        combo_cols = ['Division', 'Date', 'Time', 'HomeTeam', 'AwayTeam', 'PredictionLabel',
+                      'ModelProb', 'BaselineOdd', 'BaselineProb', 'ComboEdge', 'ComboEV']
+        combo_best[combo_cols].to_csv(f"{PUBLISHPATH}/BetBuilder_{date_str}.csv", index=False)
+        logger.log('info', f'Selected {len(combo_best)} bet-builder combos.', info=str(combo_best["Match"].tolist()))
+    else:
+        logger.log('info', 'No bet-builder combos selected today.')
 
     print(tg_text)
 

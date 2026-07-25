@@ -264,7 +264,31 @@ jobs:
           git add history/
           if git diff --cached --quiet; then
             echo "Nothing new to commit."
-          else
-            git commit -m "Add predictions batch $(date -u +%F) to history/"
-            git push
+            exit 0
           fi
+          git commit -m "Add predictions batch $(date -u +%F) to history/"
+
+          # The branch is checked out once at job start, so any commit
+          # landing on it before this push (another run, a manual push
+          # during development, etc.) makes a plain 'git push' a
+          # non-fast-forward rejection. Rebase our one commit onto
+          # whatever is now at HEAD and retry -- our own change touches
+          # only history/, so this is a same-file conflict only in the
+          # unlikely case two runs settle the exact same day's batch at
+          # the same time.
+          for attempt in 1 2 3 4 5; do
+            if git push; then
+              echo "Pushed on attempt $attempt."
+              exit 0
+            fi
+            echo "Push rejected (attempt $attempt/5) -- fetching and rebasing.."
+            git fetch origin "$GITHUB_REF_NAME"
+            if ! git rebase "origin/$GITHUB_REF_NAME"; then
+              echo "::error::Rebase failed -- likely a genuine conflict in history/, needs manual resolution."
+              git rebase --abort
+              exit 1
+            fi
+            sleep 5
+          done
+          echo "::error::Could not push after 5 attempts."
+          exit 1

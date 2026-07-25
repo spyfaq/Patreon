@@ -43,7 +43,28 @@ jobs:
           git add history/
           if git diff --cached --quiet; then
             echo "Nothing new to commit."
-          else
-            git commit -m "Settle results $(date -u +%F)"
-            git push
+            exit 0
           fi
+          git commit -m "Settle results $(date -u +%F)"
+
+          # See predictions_pipeline.yml's "Save predictions to history/"
+          # step for why this retries instead of a plain push -- the
+          # branch can move between checkout and here (another run, a
+          # manual push, etc.), which turns a plain 'git push' into a
+          # non-fast-forward rejection.
+          for attempt in 1 2 3 4 5; do
+            if git push; then
+              echo "Pushed on attempt $attempt."
+              exit 0
+            fi
+            echo "Push rejected (attempt $attempt/5) -- fetching and rebasing.."
+            git fetch origin "$GITHUB_REF_NAME"
+            if ! git rebase "origin/$GITHUB_REF_NAME"; then
+              echo "::error::Rebase failed -- likely a genuine conflict in history/, needs manual resolution."
+              git rebase --abort
+              exit 1
+            fi
+            sleep 5
+          done
+          echo "::error::Could not push after 5 attempts."
+          exit 1

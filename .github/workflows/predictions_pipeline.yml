@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: write  # needed so the 'posting' job can commit predictions into history/
+  actions: write   # needed so check_fixtures.py can read/clear the FORCE_PROCEED_* override variable
 
 jobs:
   majorleague:
@@ -38,6 +39,11 @@ jobs:
       - name: Check Major League Fixtures
         id: check_major_fixtures
         continue-on-error: true
+        env:
+          # Lets check_fixtures.py read/clear the FORCE_PROCEED_MAJORLEAGUE
+          # repo variable, so this wait can be manually short-circuited
+          # from the GitHub UI without cancelling the run.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: python check_fixtures.py majorleague --retries 3 --interval 600
 
       - name: Run Major League Predictions
@@ -81,6 +87,8 @@ jobs:
       - name: Check Minor League Fixtures
         id: check_minor_fixtures
         continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: python check_fixtures.py minorleague --retries 3 --interval 600
 
       - name: Run Minor League Predictions
@@ -126,6 +134,7 @@ jobs:
         continue-on-error: true
         env:
           FOOTBALL_DATA_ORG_TOKEN: ${{ secrets.FOOTBALL_DATA_ORG_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: python check_fixtures.py international --retries 3 --interval 600
 
       - name: Run International Competitions Predictions

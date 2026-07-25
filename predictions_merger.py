@@ -4,6 +4,8 @@
 import os, datetime, re
 import pandas as pd
 from jsonlogger_class import JSONLogger
+import team_utils
+import odds_client
 
 
 LOGPATH = 'logs/merger/'
@@ -134,11 +136,34 @@ def odd_addition(df):
         if c not in next_match.columns:
             next_match[c] = None
 
-    # Merge predictions with fixtures. Previously only AvgH/AvgA were kept,
-    # so draw (X) and Over/Under 2.5 predictions had no odds to compare
-    # against a bookmaker at all.
-    merge_cols = ['HomeTeam', 'AwayTeam', 'AvgH', 'AvgD', 'AvgA', 'AvgOver25', 'AvgUnder25']
-    merged = df.merge(next_match[merge_cols], on=['HomeTeam', 'AwayTeam'], how='left')
+    # football-data.co.uk (next_match above) only carries domestic-league
+    # odds -- nothing for Champions League / World Cup / Euros. Pull those
+    # 3 from The Odds API instead (odds_client.py), already shaped to the
+    # same Avg*/Date/Time/Div/HomeTeam/AwayTeam columns. A fetch failure
+    # here (missing ODDS_API_KEY, API down, outside a tournament window)
+    # shouldn't block odds for the domestic leagues that already succeeded
+    # above -- international rows just end up with no AVGOdd, same as any
+    # unmatched domestic row would.
+    odds_cols = ['Date', 'Time', 'Div', 'HomeTeam', 'AwayTeam', 'AvgH', 'AvgD', 'AvgA', 'AvgOver25', 'AvgUnder25']
+    try:
+        intl_odds = odds_client.fetch_all_international_odds(logger=logger)
+    except Exception as e:
+        logger.log('warning', 'Could not fetch international odds..', info=str(e))
+        intl_odds = pd.DataFrame(columns=odds_cols)
+
+    next_match = pd.concat([next_match[odds_cols], intl_odds[odds_cols]], ignore_index=True)
+
+    # Merge predictions with fixture odds, tolerating team-naming
+    # differences between whichever source produced the prediction
+    # (football-data.co.uk for major/minor, football-data.org for
+    # international) and whichever source has the odds (football-data.co.uk
+    # fixtures for domestic, The Odds API for international) -- an exact
+    # string merge previously dropped every international row outright and
+    # would silently miss any domestic team name that drifted even
+    # slightly between the two feeds.
+    odds_lookup = next_match[['HomeTeam', 'AwayTeam', 'AvgH', 'AvgD', 'AvgA', 'AvgOver25', 'AvgUnder25']]
+    merged = team_utils.fuzzy_merge(df, odds_lookup, left_on=('HomeTeam', 'AwayTeam'),
+                                     right_on=('HomeTeam', 'AwayTeam'))
 
     # Map based on prediction type
     def map_avg(row):
@@ -170,6 +195,15 @@ def merging_func():
     if concdata.empty:
         logger.log('warning', 'Nothing to merge today (no source produced predictions).')
         return
+
+    # Clean up team display names once, right here, so every downstream
+    # consumer (odds merge below, predictions_tier.py's posted output,
+    # update_results.py's settlement match) works from the same canonical
+    # names from this point on -- e.g. international's football-data.org
+    # "Real Madrid CF" becomes "Real Madrid", matching the short-form
+    # names major/minor already use from football-data.co.uk.
+    concdata['HomeTeam'] = concdata['HomeTeam'].apply(team_utils.display_name)
+    concdata['AwayTeam'] = concdata['AwayTeam'].apply(team_utils.display_name)
 
     finaldf = odd_addition(concdata)
     saveto_csv(finaldf)

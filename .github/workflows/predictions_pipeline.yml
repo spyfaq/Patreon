@@ -121,12 +121,21 @@ jobs:
           restore-keys: |
             model-params-international-
 
+      - name: Check International Fixtures
+        id: check_international_fixtures
+        continue-on-error: true
+        env:
+          FOOTBALL_DATA_ORG_TOKEN: ${{ secrets.FOOTBALL_DATA_ORG_TOKEN }}
+        run: python check_fixtures.py international --retries 3 --interval 600
+
       - name: Run International Competitions Predictions
+        if: steps.check_international_fixtures.outputs.fixtures_found == 'true'
         env:
           FOOTBALL_DATA_ORG_TOKEN: ${{ secrets.FOOTBALL_DATA_ORG_TOKEN }}
         run: python international_predictions.py
 
       - name: Upload International predictions
+        if: steps.check_international_fixtures.outputs.fixtures_found == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: international-predictions

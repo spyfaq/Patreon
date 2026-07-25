@@ -5,6 +5,8 @@ import pandas as pd
 import sys, os, argparse, time
 from datetime import datetime
 
+import football_data_org_client as fdo
+
 
 URLS = {
     "majorleague": "https://www.football-data.co.uk/fixtures.csv",
@@ -32,6 +34,25 @@ def get_upcoming_fixtures(url):
         return pd.DataFrame()
 
 
+def get_upcoming_international_fixtures():
+    """Tomorrow's scheduled matches across CL/WC/EC on football-data.org.
+    Any one of the 3 having a fixture is enough to report found=true --
+    international_predictions.py itself loops over all 3 and skips
+    whichever have nothing, same as majorleague/minorleague skip whichever
+    domestic divisions have no fixtures."""
+    tomorrow = (datetime.today().date() + pd.Timedelta(days=1)).isoformat()
+    frames = []
+    for name, code in fdo.COMPETITIONS.items():
+        try:
+            df = fdo.fetch_matches_on_date(code, tomorrow, status="SCHEDULED")
+        except Exception as e:
+            print(f"❌ Error fetching {name} ({code}): {e}")
+            continue
+        if not df.empty:
+            frames.append(df)
+    return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+
+
 def set_github_output(name, value):
     """Write a step output for the workflow to branch on. Only meaningful
     inside GitHub Actions (GITHUB_OUTPUT is set there); no-op otherwise so
@@ -44,17 +65,23 @@ def set_github_output(name, value):
         f.write(f"{name}={value}\n")
 
 
+ALL_LEAGUES = list(URLS.keys()) + ["international"]
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("league", choices=URLS.keys(), help="League to check")
+    parser.add_argument("league", choices=ALL_LEAGUES, help="League to check")
     parser.add_argument("--retries", type=int, default=12, help="Number of retries")
     parser.add_argument("--interval", type=int, default=1800, help="Seconds between retries")
     args = parser.parse_args()
 
-    url = URLS[args.league]
+    def fetch():
+        if args.league == "international":
+            return get_upcoming_international_fixtures()
+        return get_upcoming_fixtures(URLS[args.league])
 
     for attempt in range(1, args.retries + 1):
-        fixtures = get_upcoming_fixtures(url)
+        fixtures = fetch()
         if not fixtures.empty:
             print(f"✅ Upcoming fixtures found in {args.league} ({len(fixtures)} matches - {time.ctime()})")
             set_github_output("fixtures_found", "true")

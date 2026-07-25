@@ -9,6 +9,7 @@ from jsonlogger_class import JSONLogger
 from openpyxl import load_workbook
 from openpyxl.worksheet.table import Table, TableStyleInfo
 from openpyxl.utils import get_column_letter
+import team_utils
 
 LOGPATH = 'logs/data/'
 LOGNAME = '{date}_tipsselection_logs'
@@ -45,7 +46,10 @@ LEAGUES = {'EN PremierLeague': 'E0',
                 'RO Liga I': 'Romania',
                 'SE Allsvenskan': 'Sweden',
                 'CH Super League': 'Switzerland',
-                'US Major League Soccer': 'USA'
+                'US Major League Soccer': 'USA',
+                'UEFA Champions League': 'CL',
+                'FIFA World Cup': 'WC',
+                'UEFA European Championship': 'EC',
                }
 
 today_str = datetime.datetime.today().strftime("%d-%m-%Y")
@@ -260,6 +264,14 @@ def main():
 
     # Map the 'div' column
     df_full['Division'] = df_full['Division'].map(code_to_name)
+
+    # Strip decorative suffixes (FC/CF/AFC/etc.) so team names read
+    # consistently regardless of which source produced them --
+    # football-data.org's formal names ("Real Madrid CF") would otherwise
+    # sit right next to football-data.co.uk's short names ("Man United")
+    # in the same VIP list/Telegram post.
+    df_full['HomeTeam'] = df_full['HomeTeam'].apply(team_utils.display_name)
+    df_full['AwayTeam'] = df_full['AwayTeam'].apply(team_utils.display_name)
 
     logger.log('info', f'Map predictions to friendly names..')
     prediction_map = {

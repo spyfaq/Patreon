@@ -11,9 +11,9 @@ Data source: football-data.org v4 API. Free tier covers 12 competitions
 including these 3, gives fixtures/results/standings, 10 requests/minute.
 Requires a free API token (sign up at https://www.football-data.org/client/register)
 set as the FOOTBALL_DATA_ORG_TOKEN environment variable / GitHub secret.
-NOTE: the free tier does NOT include odds -- those get filled in downstream
-by best_bets_selector.py the same way as domestic picks (from a source that
-does have odds), not from football-data.org.
+NOTE: the free tier does NOT include odds. Odds for these 3 competitions
+come from odds_client.py (The Odds API) instead, merged in by team name via
+team_utils.py in predictions_merger.py's odd_addition() -- see that file.
 
 Reuses the core Dixon-Coles modeling/output logic from
 majorleague_predictions.py (dixon_coles_simulate_match, solve_parameters_decay,
@@ -25,31 +25,24 @@ majorleague_predictions.py runs as __main__ -- since we're importing it
 instead, those are patched below to route through this script's own
 logger/history logic. This is intentional, not a workaround for a bug --
 see the "Patch mlp's internals" section below for exactly what and why.
+
+The football-data.org API access itself (auth, retries, rate limiting,
+match-object parsing) lives in football_data_org_client.py, shared with
+check_fixtures.py and update_results.py so all three scripts fetch/parse
+matches identically.
 """
 
 import os
 import sys
-import time
 import datetime
-import requests
 import pandas as pd
 import numpy as np
 
 import majorleague_predictions as mlp
+import football_data_org_client as fdo
 from jsonlogger_class import JSONLogger
 
-API_BASE = "https://api.football-data.org/v4"
-API_TOKEN = os.environ.get("FOOTBALL_DATA_ORG_TOKEN")
-
-# Confirmed-free competitions on football-data.org that fill the
-# international/cup gap football-data.co.uk doesn't have. (football-data.org's
-# free 12 also includes domestic leagues already covered by
-# majorleague_predictions.py, so only the non-domestic ones are listed here.)
-COMPETITIONS = {
-    'UEFA Champions League': 'CL',
-    'FIFA World Cup': 'WC',
-    'UEFA European Championship': 'EC',
-}
+COMPETITIONS = fdo.COMPETITIONS
 
 DATAPATH = 'predictions_data/'
 DATANAME = 'my_prediction_international_data_{date1}_{date2}'
@@ -58,97 +51,17 @@ LOGNAME = '{date}_international_logs'
 
 HISTORY_SEASONS_BACK = 4  # how many prior seasons to try pulling for model fitting
 MIN_HISTORY_MATCHES = 20  # below this, Dixon-Coles fitting isn't meaningful
-REQUEST_DELAY = 6.5  # seconds between calls -- free tier is 10 req/min
-
-
-def api_get(path, params=None, retries=3):
-    if not API_TOKEN:
-        raise RuntimeError(
-            "FOOTBALL_DATA_ORG_TOKEN is not set. Sign up free at "
-            "https://www.football-data.org/client/register and add the "
-            "token as a GitHub secret / environment variable."
-        )
-    headers = {"X-Auth-Token": API_TOKEN}
-    url = f"{API_BASE}{path}"
-    for attempt in range(retries):
-        resp = requests.get(url, headers=headers, params=params, timeout=30)
-        if resp.status_code == 429:
-            logger.log('warning', "Rate limited, backing off..", info=str(url))
-            time.sleep(15)
-            continue
-        resp.raise_for_status()
-        time.sleep(REQUEST_DELAY)
-        return resp.json()
-    raise RuntimeError(f"Failed to fetch {url} after {retries} retries (rate limited).")
-
-
-def _extract_score(match):
-    """v4 uses score.fullTime.{home,away}; handle the older
-    {homeTeam,awayTeam} naming defensively too, just in case."""
-    ft = (match.get('score') or {}).get('fullTime') or {}
-    home = ft.get('home', ft.get('homeTeam'))
-    away = ft.get('away', ft.get('awayTeam'))
-    return home, away
 
 
 def fetch_historical_matches(code, seasons_back=HISTORY_SEASONS_BACK):
-    """Pull recent seasons of FINISHED matches for Dixon-Coles fitting.
-    football-data.org's free tier may not expose very old seasons -- fetch
-    defensively season by season and use whatever comes back rather than
-    failing the whole run over one missing season.
-    """
-    rows = []
-    current_year = datetime.date.today().year
-    for offset in range(seasons_back):
-        season = current_year - offset
-        try:
-            data = api_get(f"/competitions/{code}/matches", params={"season": season, "status": "FINISHED"})
-        except Exception as e:
-            logger.log('warning', f"Could not fetch {code} season {season}", info=str(e))
-            continue
-
-        for m in data.get('matches', []):
-            home, away = _extract_score(m)
-            if home is None or away is None:
-                continue
-            rows.append({
-                'HomeTeam': m['homeTeam']['name'],
-                'AwayTeam': m['awayTeam']['name'],
-                'HomeGoals': home,
-                'AwayGoals': away,
-                'Date': pd.to_datetime(m['utcDate']).tz_localize(None),
-            })
-
-    df = pd.DataFrame(rows)
-    if not df.empty:
-        df = df.sort_values('Date').reset_index(drop=True)
-        df['time_diff'] = (df['Date'].max() - df['Date']).dt.days
-    return df
+    return fdo.fetch_historical_matches(code, seasons_back=seasons_back, logger=logger)
 
 
 def fetch_tomorrow_matches(code):
     """Tomorrow's scheduled matches only -- matches the 1-day window cap
     the rest of the pipeline now uses (see majorleague_predictions.py)."""
     tomorrow = (datetime.date.today() + datetime.timedelta(days=1)).isoformat()
-    try:
-        data = api_get(f"/competitions/{code}/matches", params={
-            "dateFrom": tomorrow, "dateTo": tomorrow, "status": "SCHEDULED"
-        })
-    except Exception as e:
-        logger.log('warning', f"Could not fetch {code} upcoming fixtures", info=str(e))
-        return pd.DataFrame()
-
-    rows = []
-    for m in data.get('matches', []):
-        utc_dt = pd.to_datetime(m['utcDate'])
-        rows.append({
-            'Date': utc_dt.tz_localize(None),
-            'Time': utc_dt.strftime('%H:%M'),
-            'Div': code,
-            'HomeTeam': m['homeTeam']['name'],
-            'AwayTeam': m['awayTeam']['name'],
-        })
-    return pd.DataFrame(rows)
+    return fdo.fetch_matches_on_date(code, tomorrow, status="SCHEDULED", logger=logger)
 
 
 def historyfunc_international(hist_df, hw, aw):

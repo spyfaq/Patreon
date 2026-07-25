@@ -3,6 +3,8 @@
 
 import pandas as pd
 from jsonlogger_class import JSONLogger
+import football_data_org_client as fdo
+import team_utils
 import os, datetime, glob
 
 """
@@ -65,6 +67,13 @@ def download_league_data(url):
         league_data = pd.read_csv(url, encoding='utf-8-sig')
         league_data = league_data[['Div', 'Date', 'HomeTeam', 'AwayTeam', 'FTHG', 'FTAG']]
         league_data['Date'] = pd.to_datetime(league_data["Date"], format="%d/%m/%Y").dt.strftime("%d-%m-%Y")
+        # Match the display-name cleanup predictions_merger.py applies to
+        # the VIP file's team names (stripping FC/CF/AFC/etc.) -- results
+        # are matched to predictions by an exact Date+HomeTeam+AwayTeam
+        # key in match_matched(), so both sides need the same canonical
+        # form or settlement silently stops matching.
+        league_data['HomeTeam'] = league_data['HomeTeam'].apply(team_utils.display_name)
+        league_data['AwayTeam'] = league_data['AwayTeam'].apply(team_utils.display_name)
 
     except:
         league_data = pd.DataFrame()
@@ -95,8 +104,41 @@ def download_minor_league_data(url):
     league_data = league_data[['Country', 'Date', 'Home', 'Away', 'HG', 'AG']]
     league_data = league_data.rename(columns={'Country': 'Div', 'HG': 'FTHG', 'AG': 'FTAG', 'Home': 'HomeTeam', 'Away': 'AwayTeam'})
     league_data['Date'] = pd.to_datetime(league_data["Date"], format="%d/%m/%Y").dt.strftime("%d-%m-%Y")
+    # Same display-name cleanup as download_league_data -- see comment
+    # there for why this has to match predictions_merger.py's cleanup.
+    league_data['HomeTeam'] = league_data['HomeTeam'].apply(team_utils.display_name)
+    league_data['AwayTeam'] = league_data['AwayTeam'].apply(team_utils.display_name)
 
     return (league_data)    
+
+def download_international_results(days_back=6):
+    """FINISHED CL/WC/EC matches from football-data.org in a trailing
+    window, shaped to match the domestic download_*_data() column set
+    (Div, Date, HomeTeam, AwayTeam, FTHG, FTAG) so it concatenates
+    straight into league_data_full alongside the football-data.co.uk data.
+
+    Team names come from the same football-data.org source
+    international_predictions.py used to generate the picks, but
+    predictions_merger.py cleans up display names (stripping FC/CF/AFC/etc.)
+    before persisting the VIP file -- so results need the identical cleanup
+    applied here too, or the exact Date+HomeTeam+AwayTeam key in
+    match_matched() silently stops matching (e.g. VIP file has 'Real
+    Madrid', this fetch would otherwise still say 'Real Madrid CF')."""
+    frames = []
+    for name, code in fdo.COMPETITIONS.items():
+        df = fdo.fetch_recent_finished(code, days_back=days_back, logger=logger)
+        if df.empty:
+            continue
+        df = df.rename(columns={'HomeGoals': 'FTHG', 'AwayGoals': 'FTAG'})
+        df['Div'] = code
+        df['Date'] = pd.to_datetime(df['Date']).dt.strftime("%d-%m-%Y")
+        df['HomeTeam'] = df['HomeTeam'].apply(team_utils.display_name)
+        df['AwayTeam'] = df['AwayTeam'].apply(team_utils.display_name)
+        frames.append(df[['Div', 'Date', 'HomeTeam', 'AwayTeam', 'FTHG', 'FTAG']])
+
+    if not frames:
+        return pd.DataFrame()
+    return pd.concat(frames, ignore_index=True)
 
 def match_matched(results):
     def define(row):
@@ -199,6 +241,16 @@ if __name__ == '__main__':
         path = prefix + pre
         league_data = download_minor_league_data(path)
         league_data_full =pd.concat([league_data_full, league_data])
+
+    print(f'Downloading international competition results (CL/WC/EC)..')
+    try:
+        international_data = download_international_results()
+        league_data_full = pd.concat([league_data_full, international_data])
+    except Exception as e:
+        # FOOTBALL_DATA_ORG_TOKEN missing/invalid, or the API being down,
+        # shouldn't block settling the domestic leagues that already
+        # downloaded fine above.
+        logger.log('warning', 'Could not fetch international results..', info=str(e))
 
     print(f'Evaluating Predictions ..')
     match_matched(league_data_full)

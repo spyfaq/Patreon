@@ -266,7 +266,7 @@ jobs:
           # days from now (Tuesday's job settling Friday's batch, or vice versa)
           # find this batch, since GitHub Actions runners don't keep local
           # disk between separate workflow runs.
-          cp publish/*.xlsx publish/*.txt publish/*.csv "$BATCH_DIR"/ 2>/dev/null || true
+          cp publish/*.xlsx publish/*.txt "$BATCH_DIR"/ 2>/dev/null || true
 
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"

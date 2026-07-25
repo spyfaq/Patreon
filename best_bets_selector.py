@@ -492,17 +492,11 @@ def main():
         f.write(tg_text)
 
     if not best.empty:
-        out_cols = ['Division', 'Date', 'Time', 'HomeTeam', 'AwayTeam', 'PredictionLabel',
-                    'ModelProb', 'MarketOdd', 'ImpliedProb', 'Edge', 'EV']
-        best[out_cols].to_csv(f"{PUBLISHPATH}/BestBets_{date_str}.csv", index=False)
         logger.log('info', f'Selected {len(best)} best bets.', info=str(best["Match"].tolist()))
     else:
         logger.log('warning', 'No best bets selected today.')
 
     if not combo_best.empty:
-        combo_cols = ['Division', 'Date', 'Time', 'HomeTeam', 'AwayTeam', 'PredictionLabel',
-                      'ModelProb', 'BaselineOdd', 'BaselineProb', 'ComboEdge', 'ComboEV']
-        combo_best[combo_cols].to_csv(f"{PUBLISHPATH}/BetBuilder_{date_str}.csv", index=False)
         logger.log('info', f'Selected {len(combo_best)} bet-builder combos.', info=str(combo_best["Match"].tolist()))
     else:
         logger.log('info', 'No bet-builder combos selected today.')
@@ -517,10 +511,6 @@ def main():
         f.write(suggested_text)
 
     if not legs.empty:
-        leg_cols = ['Division', 'Date', 'Time', 'HomeTeam', 'AwayTeam', 'PredictionLabel', '_odd', '_ev', '_is_combo']
-        legs[leg_cols].rename(columns={'_odd': 'Odd', '_ev': 'EV', '_is_combo': 'IsCombo'}).to_csv(
-            f"{PUBLISHPATH}/SuggestedBets_{date_str}.csv", index=False
-        )
         logger.log('info', f'Built a {len(legs)}-leg suggested bets slip at {agg_odd:.2f}x.', info=str(legs["Match"].tolist()))
     else:
         logger.log('info', 'No suggested-bets accumulator built today.')

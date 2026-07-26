@@ -6,6 +6,7 @@ import pandas as pd
 from jsonlogger_class import JSONLogger
 import team_utils
 import odds_client
+import odds_utils
 
 
 LOGPATH = 'logs/merger/'
@@ -120,21 +121,29 @@ def odd_addition(df):
     base_cols = ['Date', 'Time', 'Div', 'HomeTeam', 'AwayTeam', 'AvgH', 'AvgD', 'AvgA']
 
     next_match1 = pd.read_csv('https://www.football-data.co.uk/fixtures.csv', encoding='utf-8-sig')
-    have_ou_1 = [c for c in ou_candidates if c in next_match1.columns]
+    have_ou_1 = team_utils.find_columns(next_match1.columns, ou_candidates)
+    logger.log('info', f'Main fixtures O/U columns found: {have_ou_1 or "NONE"}',
+               info=str(list(next_match1.columns)))
     next_match1 = next_match1[base_cols + have_ou_1]
 
     next_match2 = pd.read_csv('https://www.football-data.co.uk/new_league_fixtures.csv', encoding='utf-8-sig')
-    have_ou_2 = [c for c in ou_candidates if c in next_match2.columns]
+    have_ou_2 = team_utils.find_columns(next_match2.columns, ou_candidates)
+    logger.log('info', f'New-league fixtures O/U columns found: {have_ou_2 or "NONE"}',
+               info=str(list(next_match2.columns)))
     next_match2 = next_match2[['Date','Time', 'Country', 'Home','Away', 'AvgH', 'AvgD', 'AvgA'] + have_ou_2]
     next_match2 = next_match2.rename(columns={'Country': 'Div', 'Home': 'HomeTeam', 'Away': 'AwayTeam'})
 
     next_match = pd.concat([next_match1, next_match2])
     next_match['Date'] = pd.to_datetime(next_match['Date'], format='%d/%m/%Y')
-    next_match = next_match.rename(columns={'Avg>2.5': 'AvgOver25', 'Avg<2.5': 'AvgUnder25'})
+    next_match = next_match.rename(columns={c: 'AvgOver25' for c in have_ou_1 + have_ou_2 if c.strip().lower() == 'avg>2.5'})
+    next_match = next_match.rename(columns={c: 'AvgUnder25' for c in have_ou_1 + have_ou_2 if c.strip().lower() == 'avg<2.5'})
 
     for c in ['AvgD', 'AvgOver25', 'AvgUnder25']:
         if c not in next_match.columns:
             next_match[c] = None
+
+    logger.log('info', f'Domestic odds: {len(next_match)} fixtures, '
+                        f'{next_match["AvgOver25"].notna().sum()} with an Over 2.5 price.')
 
     # football-data.co.uk (next_match above) only carries domestic-league
     # odds -- nothing for Champions League / World Cup / Euros. Pull those
@@ -153,6 +162,11 @@ def odd_addition(df):
 
     next_match = pd.concat([next_match[odds_cols], intl_odds[odds_cols]], ignore_index=True)
 
+    # football-data.co.uk (and The Odds API's totals market, fetched only
+    # at the 2.5 line) never publishes Over 1.5 / Over 3.5 odds at all --
+    # approximate them from the real Over 2.5 price (see odds_utils.py).
+    next_match['AvgOver15'], next_match['AvgOver35'] = odds_utils.derive_over_under_odds(next_match['AvgOver25'])
+
     # Merge predictions with fixture odds, tolerating team-naming
     # differences between whichever source produced the prediction
     # (football-data.co.uk for major/minor, football-data.org for
@@ -161,7 +175,8 @@ def odd_addition(df):
     # string merge previously dropped every international row outright and
     # would silently miss any domestic team name that drifted even
     # slightly between the two feeds.
-    odds_lookup = next_match[['HomeTeam', 'AwayTeam', 'AvgH', 'AvgD', 'AvgA', 'AvgOver25', 'AvgUnder25']]
+    odds_lookup = next_match[['HomeTeam', 'AwayTeam', 'AvgH', 'AvgD', 'AvgA',
+                               'AvgOver25', 'AvgUnder25', 'AvgOver15', 'AvgOver35']]
     merged = team_utils.fuzzy_merge(df, odds_lookup, left_on=('HomeTeam', 'AwayTeam'),
                                      right_on=('HomeTeam', 'AwayTeam'))
 
@@ -175,6 +190,10 @@ def odd_addition(df):
             return row['AvgA']
         elif row['Prediction'] == 'O2_5':
             return row['AvgOver25']
+        elif row['Prediction'] == 'O1_5':
+            return row['AvgOver15']
+        elif row['Prediction'] == 'O3_5':
+            return row['AvgOver35']
         return None
 
     merged['AVGOdd'] = merged.apply(map_avg, axis=1)

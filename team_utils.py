@@ -130,6 +130,22 @@ def best_match(name, candidates, cutoff=0.82):
     return norm_to_orig[matches[0]] if matches else None
 
 
+def find_columns(columns, candidates):
+    """Match `candidates` (e.g. ['Avg>2.5', 'Avg<2.5']) against a
+    DataFrame's actual column list, tolerating whitespace/case
+    differences a strict 'in' check would miss (e.g. a source publishing
+    ' Avg>2.5' or 'avg>2.5'). Returns the ACTUAL column names found (so
+    callers can select/rename using what's really there), in the same
+    order as `candidates`."""
+    normalized = {str(c).strip().lower(): c for c in columns}
+    found = []
+    for cand in candidates:
+        key = cand.strip().lower()
+        if key in normalized:
+            found.append(normalized[key])
+    return found
+
+
 def fuzzy_merge(left, right, left_on=("HomeTeam", "AwayTeam"),
                  right_on=("HomeTeam", "AwayTeam"), cutoff=0.82,
                  how="left"):

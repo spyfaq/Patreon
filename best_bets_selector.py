@@ -39,6 +39,9 @@ import numpy as np
 import pandas as pd
 from jsonlogger_class import JSONLogger
 import date_utils
+import team_utils
+import odds_client
+import odds_utils
 
 LOGPATH = 'logs/bestbets/'
 LOGNAME = '{date}_bestbets_logs'
@@ -75,16 +78,20 @@ ACC_MIN_LEGS = 4
 ACC_MAX_LEGS = 6
 TARGET_AGG_ODD = 4.0
 
-# Prediction codes we can currently price against bookmaker odds.
-# Note: only 'O2_5' (Over 2.5) exists as an actual prediction code the model
-# emits - it never predicts "Under", so there's no 'U2_5' row to price.
-PRICED_MARKETS = {'1', 'X', '2', 'O2_5'}
+# Prediction codes we can currently price against bookmaker odds. O2_5 has
+# a real 2-way market (Over/Under 2.5) to de-vig against; O1_5/O3_5 have no
+# real market at all -- their odds are derived from O2_5 (see
+# odds_utils.py) and priced as a naive (non-de-vigged) implied probability
+# -- see implied_prob_ou(). It never predicts "Under", so there's no
+# 'U2_5' row to price.
+PRICED_MARKETS = {'1', 'X', '2', 'O1_5', 'O2_5', 'O3_5'}
 
-# Of the goal-market legs a combo can pair with a 1X2 side, only O2_5 has a
-# real bookmaker odd behind it in our data source (football-data.co.uk
-# publishes 1X2 + O/U 2.5 only). Combos using any other goal leg can still
-# be shown (model probability only) but can't be priced against a market.
-PRICED_COMBO_GOAL_LEGS = {'O2_5'}
+# Of the goal-market legs a combo can pair with a 1X2 side: O2_5 has a real
+# bookmaker odd; O1_5/O3_5 now have a derived one (see odds_utils.py) and
+# are priced the same way. Combos using any other goal leg (GG, hO2_5,
+# etc.) can still be shown (model probability only) but can't be priced
+# against a market.
+PRICED_COMBO_GOAL_LEGS = {'O1_5', 'O2_5', 'O3_5'}
 
 PREDICTION_LABELS = {
     "O1_5": "Over 1.5 Goals", "O2_5": "Over 2.5 Goals", "O3_5": "Over 3.5 Goals",
@@ -116,9 +123,15 @@ def newest_predictions() -> str:
 
 
 def fetch_market_odds() -> pd.DataFrame:
-    """Pull fresh fixture odds covering 1X2 and Over/Under 2.5, from both the
-    main and 'new league' football-data.co.uk fixture files (mirrors the
-    logic already used in predictions_merger.odd_addition, extended to O/U).
+    """Pull fresh fixture odds covering 1X2 and Over/Under 2.5 (Over 1.5 /
+    Over 3.5 are derived from Over 2.5, see odds_utils.py): domestic from
+    football-data.co.uk (mirrors predictions_merger.odd_addition, extended
+    to O/U), plus international (CL/WC/EC) from The Odds API via
+    odds_client.py, since football-data.co.uk has nothing for those 3
+    competitions -- this script previously only ever priced domestic
+    matches, so Best Bets/Bet Builder/Suggested Bets silently never
+    considered an international pick even when predictions_tier.py's
+    Excel had odds for one.
     """
     logger.log('info', 'Fetching market odds (1X2 + O/U 2.5)..')
 
@@ -126,23 +139,45 @@ def fetch_market_odds() -> pd.DataFrame:
     ou_candidates = ['Avg>2.5', 'Avg<2.5']
 
     f1 = pd.read_csv('https://www.football-data.co.uk/fixtures.csv', encoding='utf-8-sig')
-    have_ou_1 = [c for c in ou_candidates if c in f1.columns]
+    have_ou_1 = team_utils.find_columns(f1.columns, ou_candidates)
+    logger.log('info', f'Main fixtures O/U columns found: {have_ou_1 or "NONE"}',
+               info=str(list(f1.columns)))
     f1 = f1[cols_main + have_ou_1]
 
     f2 = pd.read_csv('https://www.football-data.co.uk/new_league_fixtures.csv', encoding='utf-8-sig')
     f2 = f2.rename(columns={'Country': 'Div', 'Home': 'HomeTeam', 'Away': 'AwayTeam'})
-    have_ou_2 = [c for c in ou_candidates if c in f2.columns]
+    have_ou_2 = team_utils.find_columns(f2.columns, ou_candidates)
+    logger.log('info', f'New-league fixtures O/U columns found: {have_ou_2 or "NONE"}',
+               info=str(list(f2.columns)))
     f2 = f2[[c for c in cols_main if c in f2.columns] + have_ou_2]
 
     odds = pd.concat([f1, f2], ignore_index=True)
-    odds = odds.rename(columns={'Avg>2.5': 'AvgOver25', 'Avg<2.5': 'AvgUnder25'})
+    odds = odds.rename(columns={c: 'AvgOver25' for c in have_ou_1 + have_ou_2 if c.strip().lower() == 'avg>2.5'})
+    odds = odds.rename(columns={c: 'AvgUnder25' for c in have_ou_1 + have_ou_2 if c.strip().lower() == 'avg<2.5'})
     odds['Date'] = pd.to_datetime(odds['Date'], format='%d/%m/%Y', errors='coerce')
 
     for c in ['AvgH', 'AvgD', 'AvgA', 'AvgOver25', 'AvgUnder25']:
         if c not in odds.columns:
             odds[c] = np.nan
 
-    return odds[['HomeTeam', 'AwayTeam', 'AvgH', 'AvgD', 'AvgA', 'AvgOver25', 'AvgUnder25']]
+    odds_cols = ['HomeTeam', 'AwayTeam', 'AvgH', 'AvgD', 'AvgA', 'AvgOver25', 'AvgUnder25']
+    n_over25 = odds['AvgOver25'].notna().sum()
+    logger.log('info', f'Domestic odds: {len(odds)} fixtures, {n_over25} with an Over 2.5 price.')
+
+    try:
+        intl_odds = odds_client.fetch_all_international_odds(logger=logger)
+    except Exception as e:
+        logger.log('warning', 'Could not fetch international odds..', info=str(e))
+        intl_odds = pd.DataFrame(columns=odds_cols)
+
+    combined = pd.concat([odds[odds_cols], intl_odds[odds_cols] if not intl_odds.empty else intl_odds],
+                          ignore_index=True)
+
+    # football-data.co.uk (and The Odds API's totals market, fetched only
+    # at the 2.5 line) never publishes Over 1.5 / Over 3.5 odds at all --
+    # approximate them from the real Over 2.5 price (see odds_utils.py).
+    combined['AvgOver15'], combined['AvgOver35'] = odds_utils.derive_over_under_odds(combined['AvgOver25'])
+    return combined
 
 
 def implied_prob_1x2(row) -> dict:
@@ -159,23 +194,37 @@ def implied_prob_1x2(row) -> dict:
 
 
 def implied_prob_ou(row) -> dict:
-    """De-vig the Over/Under 2.5 (two-way) market the same way."""
+    """De-vig the real Over/Under 2.5 (two-way) market. Over 1.5 and Over
+    3.5 have no real market at all -- their odds (AvgOver15/AvgOver35)
+    are estimated from Over 2.5 by a fixed offset (odds_utils.py), not a
+    genuine priced market with an Under-side to normalize against. Their
+    implied probability here is therefore the naive 1/odd (still
+    includes the bookmaker's margin) -- a reasonable approximation given
+    the data limitation, but not on the same footing as the de-vigged 2.5
+    line."""
     over = row.get('AvgOver25')
     under = row.get('AvgUnder25')
     raw_o = (1.0 / over) if pd.notna(over) and over > 0 else np.nan
     raw_u = (1.0 / under) if pd.notna(under) and under > 0 else np.nan
     total = np.nansum([raw_o, raw_u])
-    if not total or not np.isfinite(total):
-        return {'O2_5': np.nan, 'U2_5': np.nan}
-    return {
-        'O2_5': raw_o / total if pd.notna(raw_o) else np.nan,
-        'U2_5': raw_u / total if pd.notna(raw_u) else np.nan,
-    }
+    result = {'O2_5': np.nan, 'U2_5': np.nan}
+    if total and np.isfinite(total):
+        result = {
+            'O2_5': raw_o / total if pd.notna(raw_o) else np.nan,
+            'U2_5': raw_u / total if pd.notna(raw_u) else np.nan,
+        }
+
+    for pred, col in [('O1_5', 'AvgOver15'), ('O3_5', 'AvgOver35')]:
+        odd = row.get(col)
+        result[pred] = (1.0 / odd) if pd.notna(odd) and odd > 0 else np.nan
+
+    return result
 
 
 def market_odd_for_pick(row, pred_code) -> float:
     mapping = {'1': 'AvgH', 'X': 'AvgD', '2': 'AvgA',
-               'O2_5': 'AvgOver25', 'U2_5': 'AvgUnder25'}
+               'O1_5': 'AvgOver15', 'O2_5': 'AvgOver25', 'O3_5': 'AvgOver35',
+               'U2_5': 'AvgUnder25'}
     col = mapping.get(pred_code)
     return row.get(col) if col else np.nan
 
@@ -239,7 +288,7 @@ def attach_combo_edges(df: pd.DataFrame) -> pd.DataFrame:
     for idx, row in df[is_combo].iterrows():
         side, goal_leg = row['Prediction'].split('+', 1)
         if goal_leg not in PRICED_COMBO_GOAL_LEGS:
-            continue  # no odds behind this leg (e.g. GG, O1_5, hO2_5) -- model prob only
+            continue  # no odds behind this leg (e.g. GG, hO2_5, aO1_5) -- model prob only
 
         odds_1x2 = implied_prob_1x2(row)
         odds_ou = implied_prob_ou(row)
@@ -475,7 +524,7 @@ def main():
     df = pd.read_csv(filename)
 
     odds = fetch_market_odds()
-    df = df.merge(odds, on=['HomeTeam', 'AwayTeam'], how='left')
+    df = team_utils.fuzzy_merge(df, odds, left_on=('HomeTeam', 'AwayTeam'), right_on=('HomeTeam', 'AwayTeam'))
 
     df = attach_edges(df)
     df = attach_combo_edges(df)

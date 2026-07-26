@@ -42,6 +42,7 @@ import date_utils
 import team_utils
 import odds_client
 import odds_utils
+import model_config
 
 LOGPATH = 'logs/bestbets/'
 LOGNAME = '{date}_bestbets_logs'
@@ -242,7 +243,28 @@ def attach_edges(df: pd.DataFrame) -> pd.DataFrame:
     df['MarketOdd'] = np.nan
     df['ImpliedProb'] = np.nan
     df['Edge'] = np.nan
-    df['ModelProb'] = df['Prediction %']  # already a 0-1 float upstream
+    df['RawModelProb'] = df['Prediction %']  # already a 0-1 float upstream
+
+    # Calibrate before computing edge. This matters more here than
+    # anywhere else in the pipeline: Edge = ModelProb - ImpliedProb and we
+    # select the LARGEST edges, so if the model is overconfident, ranking
+    # by edge preferentially surfaces the model's own overconfidence
+    # rather than real market inefficiency -- the selection rule actively
+    # seeks out its own errors. Calibration (see model_config) maps raw
+    # probabilities onto empirically-observed hit rates first.
+    # No-op until backtest_calibration.py has produced calibration.json,
+    # so this changes nothing until there's real settled history behind it.
+    _cal = model_config.load_calibration()
+    if _cal:
+        logger.log('info', f'Applying probability calibration for markets: {sorted(_cal)}')
+        df['ModelProb'] = [
+            model_config.calibrate_prob(p, m, _cal)
+            for p, m in zip(df['RawModelProb'], df['Prediction'])
+        ]
+    else:
+        logger.log('info', 'No calibration.json found -- using raw model probabilities '
+                            '(run backtest_calibration.py to generate one).')
+        df['ModelProb'] = df['RawModelProb']
 
     for idx, row in df.iterrows():
         pred = row['Prediction']

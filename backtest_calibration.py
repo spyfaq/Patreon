@@ -25,6 +25,9 @@ Usage:
 """
 
 import argparse
+import json
+import os
+import model_config
 import numpy as np
 import pandas as pd
 from scipy.optimize import minimize
@@ -39,6 +42,8 @@ class _NullLogger:
         pass
 
 mlp.logger = _NullLogger()
+
+MIN_CALIBRATION_SAMPLES = 200  # below this a fitted shrink is noise, not signal
 
 DEFAULT_LEAGUES = {
     'En PremierLeague': 'E0', 'De Bundesliga': 'D1', 'It Serie A': 'I1',
@@ -265,6 +270,61 @@ def main(leagues, season):
     out_path = "backtest_results.csv"
     df.to_csv(out_path, index=False)
     print(f"\nRaw walk-forward predictions saved to {out_path} for further analysis.")
+
+    # ------------------------------------------------------------------
+    # Emit machine-readable outputs the live pipeline actually consumes.
+    # Previously this script only PRINTED its findings, so the recommended
+    # blend weights and any calibration insight had to be hand-copied into
+    # predictions_tier.py -- which never happened, leaving the hardcoded
+    # 0.7/0.3 in place and the calibration finding unused entirely.
+    # ------------------------------------------------------------------
+    os.makedirs(model_config.CONFIG_DIR, exist_ok=True)
+
+    tuning = {}
+    if blend is not None:
+        tuning['blend_model'] = round(float(blend['implied_weight_model']), 4)
+        tuning['blend_hist'] = round(float(blend['implied_weight_h2h']), 4)
+        tuning['blend_n_samples'] = int(blend['n_samples'])
+    if tuning:
+        tuning['generated_from'] = f"{len(df)} walk-forward predictions"
+        with open(model_config.TUNING_FILE, 'w') as f:
+            json.dump(tuning, f, indent=2)
+        print(f"Wrote tuning overrides to {model_config.TUNING_FILE}: {tuning}")
+    else:
+        print("No tuning overrides written (insufficient data to fit a blend).")
+
+    # Per-market calibration: fit shrink toward the base rate, the simple
+    # monotone form model_config.calibrate_prob applies. shrink < 1 means
+    # the model is overconfident and its probabilities get pulled back
+    # toward the observed base rate.
+    calibration = {}
+    for market, prob_col, actual_col in [
+        ('1', 'HomeProb', 'ActualHome'),
+        ('O2_5', 'Over25Prob', 'ActualOver25'),
+    ]:
+        sub = df[[prob_col, actual_col]].dropna()
+        if len(sub) < MIN_CALIBRATION_SAMPLES:
+            print(f"  {market}: only {len(sub)} samples (need >= {MIN_CALIBRATION_SAMPLES}) -- no calibration fitted.")
+            continue
+        p, y = sub[prob_col].to_numpy(float), sub[actual_col].to_numpy(float)
+        base = float(y.mean())
+        var = float(np.sum((p - p.mean()) ** 2))
+        if var <= 1e-12:
+            continue
+        # Least-squares slope of actual-vs-predicted around the base rate.
+        shrink = float(np.sum((p - p.mean()) * (y - y.mean())) / var)
+        shrink = min(max(shrink, 0.0), 1.5)
+        calibration[market] = {'base': round(base, 4), 'shrink': round(shrink, 4),
+                                'n_samples': int(len(sub))}
+        verdict = "overconfident" if shrink < 0.9 else ("well calibrated" if shrink <= 1.1 else "underconfident")
+        print(f"  {market}: base={base:.4f} shrink={shrink:.4f} (n={len(sub)}) -> {verdict}")
+
+    if calibration:
+        with open(model_config.CALIBRATION_FILE, 'w') as f:
+            json.dump(calibration, f, indent=2)
+        print(f"Wrote calibration to {model_config.CALIBRATION_FILE}")
+    else:
+        print("No calibration written (insufficient data).")
 
 
 if __name__ == '__main__':

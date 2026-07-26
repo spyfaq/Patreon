@@ -11,6 +11,7 @@ from openpyxl.worksheet.table import Table, TableStyleInfo
 from openpyxl.utils import get_column_letter
 import team_utils
 import date_utils
+import model_config
 
 LOGPATH = 'logs/data/'
 LOGNAME = '{date}_tipsselection_logs'
@@ -366,7 +367,11 @@ def main():
         # Parse History "x/y" into a fraction
         df_date["HistValue"] = df_date["History H2H"].apply(parse_hist)
 
-        df_date["ConfScore"] = (0.7 * df_date["PredValue"]) + (0.3 * df_date["HistValue"].fillna(df_date["PredValue"]))
+        # Blend weights come from model_config (backtest-tunable) rather
+        # than being hardcoded here. Defaults are the historical 0.7/0.3,
+        # so behaviour is unchanged until a tuning.json exists.
+        W_MODEL, W_HIST = model_config.get_blend_weights()
+        df_date["ConfScore"] = (W_MODEL * df_date["PredValue"]) + (W_HIST * df_date["HistValue"].fillna(df_date["PredValue"]))
         def conf_emoji(score):
             if score >= 80:
                 return "🟢"
@@ -380,13 +385,35 @@ def main():
         # Add reasoning column (for Tier 3)
         df_date["Reasoning"] = df_date.apply(generate_reasoning, axis=1)
 
-        # Filter: Prediction ≥ 64% and History ≥ 50% or Prediction ≥ 80%
-        top_picks = df_date[(
-            (df_date["PredValue"] >= 64) & (df_date["HistValue"] >= 50)
-                |
-            ((df_date["PredValue"] >= 80) & (df_date["History H2H"] == '-'))
-            )
-        ].sort_values(by=["PredValue", "HistValue"], ascending=False)
+        # Selection gate.
+        #
+        # Previously H2H acted as a HARD gate: a pick needed
+        # PredValue >= 64 AND HistValue >= 50, with the only bypass being
+        # PredValue >= 80 *and no H2H record at all*. That had two bad
+        # consequences:
+        #   1. H2H over a handful of meetings is a very noisy signal (often
+        #      largely different squads), yet it could veto a strong model
+        #      pick outright.
+        #   2. The bypass required History H2H == '-', so a pick at 85%
+        #      model confidence that merely had a POOR H2H record was
+        #      dropped, while the same 85% pick with no record at all was
+        #      kept -- having less information counted in a pick's favour.
+        #
+        # Now H2H informs ranking (via ConfScore above) rather than
+        # vetoing, and a sufficiently strong model probability qualifies on
+        # its own regardless of whether an H2H record exists. The
+        # H2H-supported route is kept at the same 64/50 level, so nothing
+        # that previously qualified stops qualifying -- this only widens
+        # the gate, it never narrows it.
+        STRONG_MODEL_ONLY = 80   # qualifies with no H2H support needed
+        MODEL_WITH_HIST = 64     # qualifies when H2H also supports it
+        HIST_SUPPORT = 50
+
+        qualifies = (
+            ((df_date["PredValue"] >= MODEL_WITH_HIST) & (df_date["HistValue"] >= HIST_SUPPORT))
+            | (df_date["PredValue"] >= STRONG_MODEL_ONLY)
+        )
+        top_picks = df_date[qualifies].sort_values(by=["PredValue", "HistValue"], ascending=False)
         
         # Fallback if no matches meet criteria
         if top_picks.empty:

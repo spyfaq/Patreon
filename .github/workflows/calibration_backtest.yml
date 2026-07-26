@@ -1,0 +1,79 @@
+name: Calibration Backtest
+
+on:
+  schedule:
+    # Monthly. Calibration is fitted over a full completed season, so it
+    # shifts slowly -- running it nightly would burn time for no benefit.
+    - cron: "0 3 1 * *"
+  workflow_dispatch:
+    inputs:
+      season:
+        description: "football-data.co.uk season code (e.g. 2425)"
+        required: false
+        default: "2425"
+
+permissions:
+  contents: write
+
+jobs:
+  backtest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: Claudedev
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run walk-forward backtest
+        # Writes model_params/tuning.json (blend weights) and
+        # model_params/calibration.json (per-market probability
+        # calibration), which model_config.py picks up automatically on the
+        # next predictions run. Both are optional -- if there isn't enough
+        # settled history to fit them reliably the script says so and
+        # writes nothing, leaving the built-in defaults in place.
+        run: python backtest_calibration.py --season "${{ github.event.inputs.season || '2425' }}"
+
+      - name: Commit calibration outputs
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add model_params/tuning.json model_params/calibration.json 2>/dev/null || true
+          if git diff --cached --quiet; then
+            echo "No calibration changes to commit."
+            exit 0
+          fi
+          git commit -m "Update model calibration from walk-forward backtest"
+
+          # Same retry-on-rejection pattern as predictions_pipeline.yml --
+          # the branch can move between checkout and push.
+          for attempt in 1 2 3 4 5; do
+            if git push; then
+              echo "Pushed on attempt $attempt."
+              exit 0
+            fi
+            echo "Push rejected (attempt $attempt/5) -- fetching and rebasing.."
+            git fetch origin "$GITHUB_REF_NAME"
+            if ! git rebase "origin/$GITHUB_REF_NAME"; then
+              echo "::error::Rebase failed -- needs manual resolution."
+              git rebase --abort
+              exit 1
+            fi
+            sleep 5
+          done
+          echo "::error::Could not push after 5 attempts."
+          exit 1
+
+      - name: Upload backtest report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backtest-results
+          path: backtest_results.csv
+          if-no-files-found: ignore

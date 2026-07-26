@@ -7,6 +7,7 @@ import  sys, os, datetime, requests, warnings, json
 from scipy.stats import poisson
 from scipy.optimize import minimize
 from jsonlogger_class import JSONLogger
+import model_config
 import date_utils
 from collections import defaultdict
 
@@ -65,16 +66,49 @@ LOGNAME = '{date}_my_prediction_major_logs'
 
 warnings.filterwarnings('ignore')
 
+def resolve_team_params(params_dict, team, teams_in_model=None):
+    """Return (attack, defence) for `team`, falling back to a league-average
+    placeholder when the team has no fitted parameters.
+
+    A newly promoted team has no matches in the training window, so
+    calc_means() raised KeyError -> the caller logged it and `continue`d,
+    silently dropping that fixture from the day's card entirely. Early in a
+    season that can be several fixtures a day disappearing with no visible
+    reason beyond a log line.
+
+    The fallback treats an unknown team as exactly league-average: attack
+    at the fitted mean (~0 by the identifiability penalty) and defence at
+    the fitted mean. That is deliberately a weak, unopinionated estimate --
+    a promoted side is usually weaker than average, so if anything this
+    flatters them. It exists so the fixture still gets a prediction that
+    downstream confidence gates can then judge on its merits, rather than
+    vanishing. Callers can check `is_fallback` to decide whether to trust
+    it.
+    """
+    a_key, d_key = 'attack_' + team, 'defence_' + team
+    if a_key in params_dict and d_key in params_dict:
+        return params_dict[a_key], params_dict[d_key], False
+
+    atts = [v for k, v in params_dict.items() if k.startswith('attack_')]
+    defs = [v for k, v in params_dict.items() if k.startswith('defence_')]
+    if not atts or not defs:
+        raise ValueError(f"No fitted parameters at all; cannot fall back for {team}")
+    return float(np.mean(atts)), float(np.mean(defs)), True
+
+
 def calc_means(param_dict, homeTeam, awayTeam):
     """Calculate expected goals for home and away teams with safety checks.
 
-    Interface is identical to original: returns [lambda_home, lambda_away]
+    Interface is identical to original: returns [lambda_home, lambda_away].
+    Unknown teams (e.g. newly promoted, no matches in the training window)
+    resolve to league-average parameters rather than raising -- see
+    resolve_team_params().
     """
-    try:
-        lambda_home = np.exp(param_dict['attack_' + homeTeam] + param_dict['defence_' + awayTeam] + param_dict['home_adv'])
-        lambda_away = np.exp(param_dict['defence_' + homeTeam] + param_dict['attack_' + awayTeam])
-    except KeyError as e:
-        raise ValueError(f"Missing team parameter: {e}")
+    h_att, h_def, _ = resolve_team_params(param_dict, homeTeam)
+    a_att, a_def, _ = resolve_team_params(param_dict, awayTeam)
+
+    lambda_home = np.exp(h_att + a_def + param_dict['home_adv'])
+    lambda_away = np.exp(h_def + a_att)
 
     # Numerical safety: clamp to avoid extreme Poisson means that break simulation
     # Allow wide range but prevent absurd values due to optimizer instability
@@ -255,7 +289,7 @@ def save_cached_params(divis, params_dict):
         json.dump(params_dict, f)
 
 
-def solve_parameters_decay(dataset, xi=0.0018, debug=False, init_vals=None, options={'disp': False, 'maxiter': 200},
+def solve_parameters_decay(dataset, xi=None, debug=False, init_vals=None, options={'disp': False, 'maxiter': 200},
                            constraints=None, reg=0.05, restarts=3, bounds_scale=3.0, seed=42, **kwargs):
     """Estimate Dixon-Coles parameters with L2 regularization, bounds and multiple restarts.
 
@@ -263,6 +297,11 @@ def solve_parameters_decay(dataset, xi=0.0018, debug=False, init_vals=None, opti
     replaces the equality constraint approach by bounded optimization + identifiability penalty
     for more robust fits.
     """
+    # xi (time-decay rate) now comes from model_config so it can be
+    # tuned by backtest_calibration.py rather than being a magic number
+    # duplicated across both fitters. None -> configured/default value.
+    if xi is None:
+        xi = model_config.get_xi()
     teams = np.sort(dataset['HomeTeam'].unique())
     away_teams = np.sort(dataset['AwayTeam'].unique())
     if not np.array_equal(teams, away_teams):

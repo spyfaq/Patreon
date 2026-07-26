@@ -1,0 +1,28 @@
+🎯 <b>Best Bets — 2026-07-26</b>
+<i>Ranked by model edge vs bookmaker odds, not just confidence</i>
+
+⚽ <b>Brann vs Valerenga</b> (Norway)
+   → Home Win @ 1.72
+   Model: 77% | Market implies: 53% | Edge: +23.8pp | EV: +0.32 per unit
+
+⚽ <b>Sirius vs Goteborg</b> (Sweden)
+   → Home Win @ 1.41
+   Model: 93% | Market implies: 65% | Edge: +28.5pp | EV: +0.31 per unit
+
+⚽ <b>Estudiantes L.P. vs Independiente</b> (Argentina)
+   → Home Win @ 2.11
+   Model: 60% | Market implies: 44% | Edge: +16.3pp | EV: +0.27 per unit
+
+⚽ <b>St. Gallen vs Zurich</b> (Switzerland)
+   → Home Win @ 1.60
+   Model: 69% | Market implies: 57% | Edge: +12.0pp | EV: +0.10 per unit
+
+⚽ <b>Aalesund vs Viking</b> (Norway)
+   → Away Win @ 1.45
+   Model: 76% | Market implies: 63% | Edge: +13.2pp | EV: +0.10 per unit
+
+⚽ <b>Palmeiras vs Atletico-MG</b> (Brazil)
+   → Home Win @ 1.62
+   Model: 67% | Market implies: 57% | Edge: +10.3pp | EV: +0.09 per unit
+
+📌 Edge = how much more likely our model thinks this is vs. what the odds imply. Higher edge and EV means better long-run value — not a guarantee on any single bet.

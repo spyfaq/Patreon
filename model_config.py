@@ -133,3 +133,114 @@ def calibrate_prob(prob, market, calibration=None):
     shrink = float(entry.get('shrink', 1.0))
     out = base + shrink * (p - base)
     return min(max(out, 0.0), 1.0)
+
+
+# ------------------------------------------------- market-relative gating
+#
+# The problem this solves: a single absolute threshold was applied to every
+# market, but different markets have wildly different NATURAL rates. Over
+# 1.5 lands ~75% of the time, Over 2.5 ~52%, a draw ~26%. A flat "must be
+# >= 64%" gate therefore doesn't mean "confident" -- it mostly just means
+# "this market has a high base rate". Over 1.5 sailed through on almost
+# every fixture while Over 2.5 could essentially never qualify: it needs
+# ~3.3 total expected goals to reach 64%, against a real league average of
+# ~2.5-2.8, so it was structurally excluded rather than judged.
+#
+# Base rates below are the well-established long-run frequencies across
+# major European leagues. They are PROVISIONAL defaults -- get_base_rate()
+# prefers the empirically measured value from calibration.json as soon as
+# backtest_calibration.py has produced one.
+MARKET_BASE_RATES = {
+    '1': 0.44, 'X': 0.26, '2': 0.30,
+    'O1_5': 0.75, 'O2_5': 0.52, 'O3_5': 0.29,
+    'GG': 0.51,
+    'hO1_5': 0.42, 'hO2_5': 0.19,
+    'aO1_5': 0.33, 'aO2_5': 0.13,
+}
+
+# Minimum model probability for a pick to reach the VIP list, per market.
+#
+# 1X2 values are deliberately left at the historical 0.64 so the change is
+# neutral for those markets. The goal markets are set relative to their own
+# base rates, which is the actual fix:
+#   O2_5 0.60 sits ~8pp above its 0.52 base -- a genuinely informative
+#        signal, and reachable, where 0.64 was not.
+#   O1_5 0.85 replaces a bar its 0.75 base cleared almost automatically,
+#        so it now has to earn its place like everything else.
+# Net effect: relatively more Over 2.5, fewer near-automatic Over 1.5.
+# These are provisional pending calibration -- see MIN_LIFT_OVER_BASE.
+MARKET_MIN_PROB = {
+    '1': 0.64, 'X': 0.64, '2': 0.64,
+    'O1_5': 0.85, 'O2_5': 0.60, 'O3_5': 0.42,
+    'GG': 0.62,
+    'hO1_5': 0.55, 'hO2_5': 0.32,
+    'aO1_5': 0.46, 'aO2_5': 0.24,
+}
+
+# Fallback for any market without an explicit entry above.
+DEFAULT_MIN_PROB = 0.64
+
+# A pick must also beat its own base rate by at least this margin, so a
+# probability that merely matches what the market does anyway never counts
+# as a "confident" tip regardless of its absolute value.
+MIN_LIFT_OVER_BASE = 0.06
+
+# Floor used when recording a market at all (resultdef). Set per-market to
+# its base rate rather than a flat 0.5, so a market is written out only
+# when the model rates it at least as likely as typical -- but never below
+# this absolute floor, to avoid flooding the intermediate file with noise
+# from naturally low-frequency markets.
+MIN_RECORD_FLOOR = 0.40
+
+
+def get_base_rate(market):
+    """Empirically measured base rate for `market` if calibration.json has
+    one (backtest_calibration.py writes it), else the provisional default."""
+    entry = load_calibration().get(market) or {}
+    base = entry.get('base')
+    if base is not None:
+        try:
+            return float(base)
+        except (TypeError, ValueError):
+            pass
+    return MARKET_BASE_RATES.get(market, DEFAULT_MIN_PROB)
+
+
+def get_market_min_prob(market):
+    """Absolute probability a pick must reach for this market."""
+    t = _load(TUNING_FILE).get('market_min_prob', {})
+    if market in t:
+        return float(t[market])
+    return MARKET_MIN_PROB.get(market, DEFAULT_MIN_PROB)
+
+
+def get_record_floor(market):
+    """Floor for recording a market at all, in resultdef."""
+    return max(get_base_rate(market), MIN_RECORD_FLOOR)
+
+
+# The original gate had TWO bars: a pick qualified at 0.64 WITH H2H
+# support, or at 0.80 with none -- a 0.80 ratio between them. MARKET_MIN_PROB
+# above is the H2H-supported bar; the unsupported bar is derived from it by
+# the same ratio, so 1X2 reproduces the historical 0.64 / 0.80 exactly.
+HIST_SUPPORT_RATIO = 0.80
+MAX_STRONG_PROB = 0.95  # a derived bar above this is unreachable in practice
+
+
+def get_strong_prob(market):
+    """Probability required to qualify with NO H2H support."""
+    return min(get_market_min_prob(market) / HIST_SUPPORT_RATIO, MAX_STRONG_PROB)
+
+
+def has_min_lift(market, prob):
+    """True when `prob` beats this market's own base rate by at least
+    MIN_LIFT_OVER_BASE. Applied on top of the bars above so a probability
+    that merely matches what the market does anyway never reads as a
+    confident tip, whatever its absolute value."""
+    if prob is None:
+        return False
+    try:
+        p = float(prob)
+    except (TypeError, ValueError):
+        return False
+    return (p - get_base_rate(market)) >= MIN_LIFT_OVER_BASE

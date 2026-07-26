@@ -335,10 +335,13 @@ def solve_parameters_decay(dataset, xi=None, debug=False, init_vals=None, option
     param_names = ["attack_" + team for team in teams] + ["defence_" + team for team in teams] + ['rho', 'home_adv']
     return dict(zip(param_names, x))
 
-def resultdef(result, ht, at, divis, mdata, mtime, standings, old_df, lgdata, THRESH = 0.5):
-    # THRESH raised from 0.4 -> 0.5: 40% let markets close to a coin-flip
-    # through as "predictions". 0.5 is still permissive but avoids flagging
-    # outcomes the model itself thinks are less likely than not.
+def resultdef(result, ht, at, divis, mdata, mtime, standings, old_df, lgdata, THRESH = None):
+    # THRESH is now per-market rather than one flat number (pass an explicit
+    # value to override for every market). See majorleague_predictions.py
+    # for the full rationale: a flat 0.5 meant something different depending
+    # on each market's natural frequency, letting Over 1.5 (~75% base)
+    # through almost automatically while cutting Over 2.5 (~52% base) on
+    # roughly half of all fixtures before it was ever judged.
     max_g = result.shape[0] - 1
     max_g_away = result.shape[1] - 1
 
@@ -408,7 +411,12 @@ def resultdef(result, ht, at, divis, mdata, mtime, standings, old_df, lgdata, TH
     for res in list(dict.keys()) + list(combo_dict.keys()):
         is_combo = res in combo_dict
         val = combo_dict[res] if is_combo else dict[res]
-        this_thresh = COMBO_THRESH if is_combo else THRESH
+        if is_combo:
+            this_thresh = COMBO_THRESH
+        elif THRESH is not None:
+            this_thresh = THRESH          # explicit caller override
+        else:
+            this_thresh = model_config.get_record_floor(res)
         if val > this_thresh:
             try:
                 hist_perc = hist_dict[res]

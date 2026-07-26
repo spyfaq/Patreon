@@ -341,6 +341,10 @@ def main():
         "hO2_5": "Home team Over 2.5 Goals"
     }
     
+    # Keep the raw market code (e.g. 'O2_5') before it becomes a display
+    # label ('Over 2.5 Goals') -- the selection gate below is per-market and
+    # needs the code to look up that market's threshold and base rate.
+    df_full["RawPrediction"] = df_full["Prediction"]
     df_full["Prediction"] = df_full["Prediction"].map(prediction_map).fillna(df_full["Prediction"])
     df_full["Prediction %"] = df_full["Prediction %"].apply(lambda x: f"{x*100:.2f}%")
     df_full["AVGOdd"] = df_full["AVGOdd"].apply(lambda x: f"{x:.2f}" if pd.notna(x) else "-")
@@ -405,13 +409,34 @@ def main():
         # H2H-supported route is kept at the same 64/50 level, so nothing
         # that previously qualified stops qualifying -- this only widens
         # the gate, it never narrows it.
-        STRONG_MODEL_ONLY = 80   # qualifies with no H2H support needed
-        MODEL_WITH_HIST = 64     # qualifies when H2H also supports it
-        HIST_SUPPORT = 50
+        # Thresholds are now PER-MARKET (model_config.MARKET_MIN_PROB)
+        # rather than one flat 64/80 for everything. A flat number meant
+        # something different in every market: Over 1.5 lands ~75% of the
+        # time so it cleared 64 on almost every fixture, while Over 2.5
+        # (~52% base) needs ~3.3 total expected goals just to REACH 64,
+        # against a real league average of ~2.5-2.8 -- so it was
+        # structurally excluded rather than actually judged. 1X2 markets
+        # keep the historical 0.64/0.80, so this is neutral for them.
+        #
+        # A pick must clear its market's absolute bar AND beat that
+        # market's own base rate by MIN_LIFT_OVER_BASE, so a probability
+        # that merely matches what the market does anyway never reads as
+        # a confident tip.
+        raw_market = df_date["RawPrediction"]
+        prob = df_date["PredValue"] / 100.0
 
-        qualifies = (
-            ((df_date["PredValue"] >= MODEL_WITH_HIST) & (df_date["HistValue"] >= HIST_SUPPORT))
-            | (df_date["PredValue"] >= STRONG_MODEL_ONLY)
+        # Two bars per market, mirroring the original gate's structure:
+        # the lower one qualifies WITH H2H support, the higher one with
+        # none. 1X2 resolves to exactly the historical 64 / 80, so this is
+        # neutral there; only the goal markets move.
+        min_bar = pd.Series([model_config.get_market_min_prob(m) * 100 for m in raw_market], index=df_date.index)
+        strong_bar = pd.Series([model_config.get_strong_prob(m) * 100 for m in raw_market], index=df_date.index)
+        lift_ok = pd.Series([model_config.has_min_lift(m, p) for m, p in zip(raw_market, prob)], index=df_date.index)
+
+        HIST_SUPPORT = 50
+        qualifies = lift_ok & (
+            (df_date["PredValue"] >= strong_bar)
+            | ((df_date["PredValue"] >= min_bar) & (df_date["HistValue"] >= HIST_SUPPORT))
         )
         top_picks = df_date[qualifies].sort_values(by=["PredValue", "HistValue"], ascending=False)
         

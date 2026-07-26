@@ -356,10 +356,16 @@ def solve_parameters_decay(dataset, xi=None, debug=False, init_vals=None, option
     param_names = ["attack_" + team for team in teams] + ["defence_" + team for team in teams] + ['rho', 'home_adv']
     return dict(zip(param_names, x))
 
-def resultdef(result, ht, at, divis, mdata, mtime, standings, lgdata, THRESH = 0.5):
-    # THRESH raised from 0.4 -> 0.5: 40% let markets close to a coin-flip
-    # through as "predictions". 0.5 is still permissive but avoids flagging
-    # outcomes the model itself thinks are less likely than not.
+def resultdef(result, ht, at, divis, mdata, mtime, standings, lgdata, THRESH = None):
+    # THRESH is now per-market rather than one flat number (pass an explicit
+    # value to override for every market). Rationale: a flat 0.5 meant
+    # something completely different depending on the market's natural
+    # frequency -- Over 1.5 lands ~75% of the time so it cleared 0.5 on
+    # virtually every fixture, while Over 2.5 (~52% base) was cut on roughly
+    # half of all fixtures before it was ever judged. The floor is now each
+    # market's own base rate (see model_config.get_record_floor), so
+    # "recorded" consistently means "the model rates this at least as likely
+    # as typical for this market".
     max_g = result.shape[0] - 1
     max_g_away = result.shape[1] - 1
 
@@ -434,7 +440,12 @@ def resultdef(result, ht, at, divis, mdata, mtime, standings, lgdata, THRESH = 0
     for res in list(dict.keys()) + list(combo_dict.keys()):
         is_combo = res in combo_dict
         val = combo_dict[res] if is_combo else dict[res]
-        this_thresh = COMBO_THRESH if is_combo else THRESH
+        if is_combo:
+            this_thresh = COMBO_THRESH
+        elif THRESH is not None:
+            this_thresh = THRESH          # explicit caller override
+        else:
+            this_thresh = model_config.get_record_floor(res)
         if val > this_thresh:
             if hist_dict is None:
                 logger.log('info', "Calculating class history", info=str(f'{ht}-{at}'))

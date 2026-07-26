@@ -143,7 +143,21 @@ def fetch_market_odds() -> pd.DataFrame:
     have_ou_1 = team_utils.find_columns(f1.columns, ou_candidates)
     logger.log('info', f'Main fixtures O/U columns found: {have_ou_1 or "NONE"}',
                info=str(list(f1.columns)))
-    f1 = f1[cols_main + have_ou_1]
+    # Select defensively, exactly as the new_league fetch below already
+    # did. Selecting cols_main strictly raised
+    #   KeyError: "['Date', 'Time'] not in index"
+    # and killed the whole run whenever football-data.co.uk published
+    # fixtures.csv without those columns (it varies -- an empty or
+    # between-rounds file can omit them). Nothing downstream of here
+    # actually needs Date/Time from the ODDS feed: odds are merged onto
+    # predictions by team name, and the run's date comes from the
+    # predictions file. So a missing column should degrade to "no odds
+    # for that field", never abort the run.
+    missing_1 = [c for c in cols_main if c not in f1.columns]
+    if missing_1:
+        logger.log('warning', f'fixtures.csv missing expected columns: {missing_1}',
+                   info=str(list(f1.columns)))
+    f1 = f1[[c for c in cols_main if c in f1.columns] + have_ou_1]
 
     f2 = pd.read_csv('https://www.football-data.co.uk/new_league_fixtures.csv', encoding='utf-8-sig')
     f2 = f2.rename(columns={'Country': 'Div', 'Home': 'HomeTeam', 'Away': 'AwayTeam'})

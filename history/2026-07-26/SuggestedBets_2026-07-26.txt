@@ -1,0 +1,3 @@
+⚠️ <b>Suggested Bets could not be generated for 2026-07-26.</b>
+Reason: "['Date', 'Time'] not in index"
+This means the script hit an error, not that no value was found today -- check the run logs for the full traceback.

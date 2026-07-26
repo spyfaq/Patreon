@@ -518,7 +518,46 @@ def format_telegram(best: pd.DataFrame, combo_best: pd.DataFrame, date_str: str)
     return msg.strip()
 
 
+def _write_txt(prefix, date_str, content):
+    if not os.path.exists(PUBLISHPATH):
+        os.makedirs(PUBLISHPATH)
+    with open(f"{PUBLISHPATH}/{prefix}_{date_str}.txt", "w", encoding="utf-8") as f:
+        f.write(content)
+
+
+def _failure_message(prefix, date_str, reason):
+    label = "Best Bets" if prefix == "BestBets" else "Suggested Bets"
+    return (
+        f"⚠️ <b>{label} could not be generated for {date_str}.</b>\n"
+        f"Reason: {reason}\n"
+        f"This means the script hit an error, not that no value was found "
+        f"today -- check the run logs for the full traceback."
+    )
+
+
+def _write_failure_files(reason, date_strs=None):
+    """Write an explanation file for both BestBets and SuggestedBets when
+    something goes wrong badly enough that we never even got to select
+    picks -- e.g. the merged predictions file is missing, the odds fetch
+    fails outright, or the data has no usable Date/Time to bucket by.
+    Without this, a failure here (even with continue-on-error on the
+    workflow step) produced NO file at all, silently, which looks
+    identical to 'nothing qualified today' from the outside."""
+    for date_str in (date_strs or [datetime.date.today().strftime('%Y-%m-%d')]):
+        for prefix in ("BestBets", "SuggestedBets"):
+            _write_txt(prefix, date_str, _failure_message(prefix, date_str, reason))
+
+
 def main():
+    try:
+        _main_impl()
+    except Exception as e:
+        logger.log('error', 'best_bets_selector.py failed before producing output -- writing failure explanation files.', info=str(e))
+        _write_failure_files(str(e), date_strs=date_utils.relevant_date_strs())
+        raise  # still surface the failure in the job's exit code/logs
+
+
+def _main_impl():
     filename = newest_predictions()
     logger.log('info', 'Loading merged predictions..', info=filename)
     df = pd.read_csv(filename)
@@ -545,42 +584,59 @@ def main():
     if not os.path.exists(PUBLISHPATH):
         os.makedirs(PUBLISHPATH)
 
+    if df.empty:
+        # The merged predictions file itself had no rows -- distinct from
+        # "ran fine, nothing cleared the value bar", which format_telegram/
+        # format_suggested_bets already handle with their own message.
+        logger.log('warning', 'Merged predictions file has no rows -- nothing to select from.')
+        _write_failure_files("No predictions available to select from (merged file was empty).",
+                              date_strs=date_utils.relevant_date_strs())
+        return
+
     for match_date, df_date in df.groupby('AdjustedDate'):
         date_str = pd.to_datetime(match_date).strftime('%Y-%m-%d')
         df_date = df_date.drop(columns=['AdjustedDate'])
+        tg_text = None
 
-        best = select_best_bets(df_date)
-        combo_best = select_best_combo_bets(df_date)
+        try:
+            best = select_best_bets(df_date)
+            combo_best = select_best_combo_bets(df_date)
+            tg_text = format_telegram(best, combo_best, date_str)
+            _write_txt("BestBets", date_str, tg_text)
 
-        tg_text = format_telegram(best, combo_best, date_str)
-        with open(f"{PUBLISHPATH}/BestBets_{date_str}.txt", "w", encoding="utf-8") as f:
-            f.write(tg_text)
+            if not best.empty:
+                logger.log('info', f'Selected {len(best)} best bets for {date_str}.', info=str(best["Match"].tolist()))
+            else:
+                logger.log('warning', f'No best bets selected for {date_str}.')
 
-        if not best.empty:
-            logger.log('info', f'Selected {len(best)} best bets for {date_str}.', info=str(best["Match"].tolist()))
-        else:
-            logger.log('warning', f'No best bets selected for {date_str}.')
-
-        if not combo_best.empty:
-            logger.log('info', f'Selected {len(combo_best)} bet-builder combos for {date_str}.', info=str(combo_best["Match"].tolist()))
-        else:
-            logger.log('info', f'No bet-builder combos selected for {date_str}.')
+            if not combo_best.empty:
+                logger.log('info', f'Selected {len(combo_best)} bet-builder combos for {date_str}.', info=str(combo_best["Match"].tolist()))
+            else:
+                logger.log('info', f'No bet-builder combos selected for {date_str}.')
+        except Exception as e:
+            logger.log('error', f'Best Bets generation failed for {date_str} -- writing failure explanation.', info=str(e))
+            _write_txt("BestBets", date_str, _failure_message("BestBets", date_str, str(e)))
 
         # Suggested Bets: one combined 4-6 leg accumulator (singles
         # and/or combos, one leg per match) targeting a combined odd of
         # at least TARGET_AGG_ODD -- distinct from the independent
-        # per-match suggestions above.
-        legs, agg_odd = build_accumulator(df_date)
-        suggested_text = format_suggested_bets(legs, agg_odd, date_str)
-        with open(f"{PUBLISHPATH}/SuggestedBets_{date_str}.txt", "w", encoding="utf-8") as f:
-            f.write(suggested_text)
+        # per-match suggestions above. Wrapped separately from the Best
+        # Bets block so a failure in one doesn't prevent the other's file
+        # from being written for this date.
+        try:
+            legs, agg_odd = build_accumulator(df_date)
+            suggested_text = format_suggested_bets(legs, agg_odd, date_str)
+            _write_txt("SuggestedBets", date_str, suggested_text)
 
-        if not legs.empty:
-            logger.log('info', f'Built a {len(legs)}-leg suggested bets slip at {agg_odd:.2f}x for {date_str}.', info=str(legs["Match"].tolist()))
-        else:
-            logger.log('info', f'No suggested-bets accumulator built for {date_str}.')
+            if not legs.empty:
+                logger.log('info', f'Built a {len(legs)}-leg suggested bets slip at {agg_odd:.2f}x for {date_str}.', info=str(legs["Match"].tolist()))
+            else:
+                logger.log('info', f'No suggested-bets accumulator built for {date_str}.')
+        except Exception as e:
+            logger.log('error', f'Suggested Bets generation failed for {date_str} -- writing failure explanation.', info=str(e))
+            _write_txt("SuggestedBets", date_str, _failure_message("SuggestedBets", date_str, str(e)))
 
-        print(tg_text)
+        print(tg_text if tg_text is not None else f"(Best Bets for {date_str} failed -- see logs)")
 
 
 if __name__ == '__main__':

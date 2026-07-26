@@ -171,7 +171,20 @@ def fuzzy_merge(left, right, left_on=("HomeTeam", "AwayTeam"),
     right["_nh"] = right[r_home].map(normalize)
     right["_na"] = right[r_away].map(normalize)
 
-    other_cols = [c for c in right.columns if c not in (r_home, r_away, "_nh", "_na")]
+    # Only pull in columns that are genuinely NEW information from the
+    # right side. If `right` also has a column the caller already has on
+    # `left` (e.g. best_bets_selector.py merging odds -- which carries its
+    # own Date/Time/Div -- onto predictions, which already have Date/
+    # Time/Div), a plain merge() auto-suffixes the collision to
+    # 'Date_x'/'Date_y', silently invalidating every reference to the
+    # plain name below and raising a downstream KeyError the first time
+    # this ran against two frames that happened to overlap. Left's own
+    # values are authoritative for anything it already has, so those
+    # columns are simply never brought in from the right at all --
+    # simpler and more correct than managing suffixes.
+    other_cols = [c for c in right.columns
+                  if c not in (r_home, r_away, "_nh", "_na")
+                  and c not in left.columns]
 
     merged = left.merge(right[["_nh", "_na"] + other_cols], on=["_nh", "_na"], how=how)
 

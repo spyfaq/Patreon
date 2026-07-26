@@ -599,6 +599,16 @@ def _main_impl():
     df = pd.read_csv(filename)
 
     odds = fetch_market_odds()
+    # Narrow to just the odds fields before merging -- fetch_market_odds()
+    # carries Date/Time/Div for its own bookkeeping, but predictions
+    # already have their own (authoritative) versions of those. fuzzy_merge
+    # now excludes any right-side column that collides with a left-side
+    # one anyway, but doing it explicitly here matches
+    # predictions_merger.odd_addition()'s existing pattern and keeps the
+    # merge's intent obvious: only genuinely new fields cross over.
+    odds_cols = ['HomeTeam', 'AwayTeam', 'AvgH', 'AvgD', 'AvgA',
+                 'AvgOver25', 'AvgUnder25', 'AvgOver15', 'AvgOver35']
+    odds = odds[[c for c in odds_cols if c in odds.columns]]
     df = team_utils.fuzzy_merge(df, odds, left_on=('HomeTeam', 'AwayTeam'), right_on=('HomeTeam', 'AwayTeam'))
 
     df = attach_edges(df)

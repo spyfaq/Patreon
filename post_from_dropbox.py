@@ -20,12 +20,13 @@ CHAT_IDS = {
 # Dropbox folder path
 DROPBOX_FOLDER = "/telegram_content"
 
-# The pipeline predicts TOMORROW's fixtures but shifts early-morning
-# matches back a day (see date_utils.py) -- so a single run's output can
-# be dated either today or tomorrow, or both at once (e.g. VIP_2026-07-25
-# AND VIP_2026-07-26 from the same run). Checking only today's date, as
-# this used to, silently missed every file in the "tomorrow" bucket --
-# which is most of them, since only early-morning matches shift back.
+# Fetch and label windows are now aligned (see date_utils.py): a run on
+# day X should only ever produce files dated day X. Both today's and
+# tomorrow's date are still checked here as a defensive safety net --
+# cheap to check, and silently missing a file (as this script used to,
+# when it only checked today's date while fetching/labeling disagreed
+# about what "today" meant) is worse than one harmless extra lookup that
+# finds nothing.
 CANDIDATE_DATE_STRS = date_utils.relevant_date_strs()
 
 def list_dropbox_files():

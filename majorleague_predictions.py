@@ -7,6 +7,7 @@ import  sys, os, datetime, requests, warnings, json
 from scipy.stats import poisson
 from scipy.optimize import minimize
 from jsonlogger_class import JSONLogger
+import date_utils
 from collections import defaultdict
 
 """
@@ -794,16 +795,16 @@ if __name__ == '__main__':
     next_match = upcoming('https://www.football-data.co.uk/fixtures.csv')
     #next_match = load_fixtures_rapidapi()
 
-    # 1-day window cap: with daily generation, each run should predict only
-    # TOMORROW's matches, not every future fixture in the CSV (which spans
-    # 1-2 weeks). Without this cap, the same match would get predicted and
-    # logged into history/ again on every consecutive day until it's played,
-    # inflating pick counts and breaking the dashboard/ROI math.
-    tomorrow = pd.Timestamp(datetime.date.today() + datetime.timedelta(days=1))
-    next_match = next_match[next_match['Date'].dt.normalize() == tomorrow]
+    # Fetch window: today from the 08:00 cutoff onward, plus tomorrow up
+    # to 08:00 (see date_utils.py). Previously this filtered to `Date ==
+    # tomorrow` exactly -- a run on day X only ever fetched day X+1's
+    # fixtures, never day X's own daytime/evening matches, and everything
+    # in day X+1 (even matches well after the cutoff) got swept into that
+    # batch instead of being left for day X+1's own run.
+    next_match = next_match[date_utils.in_fetch_window(next_match['Date'], next_match['Time'])]
 
     if next_match.empty:
-        logger.log('info', "No fixtures tomorrow.. Bye")
+        logger.log('info', "No fixtures in today's window.. Bye")
         sys.exit()
 
     fromdate = min(next_match['Date']).strftime('%d%m%Y')

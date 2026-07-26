@@ -7,6 +7,7 @@ import  sys, os, datetime, warnings, json
 from scipy.stats import poisson
 from scipy.optimize import minimize
 from jsonlogger_class import JSONLogger
+import date_utils
 from collections import defaultdict
 
 """
@@ -762,12 +763,12 @@ if __name__ == '__main__':
     logger.log('info', "Downloading schedule..")
     next_match = upcoming('https://www.football-data.co.uk/new_league_fixtures.csv')
 
-    # 1-day window cap: see majorleague_predictions.py for the full rationale.
-    tomorrow = pd.Timestamp(datetime.date.today() + datetime.timedelta(days=1))
-    next_match = next_match[next_match['Date'].dt.normalize() == tomorrow]
+    # Fetch window: see majorleague_predictions.py for the full rationale
+    # (today from the 08:00 cutoff onward, plus tomorrow up to 08:00).
+    next_match = next_match[date_utils.in_fetch_window(next_match['Date'], next_match['Time'])]
 
     if next_match.empty:
-        logger.log('info', "No fixtures tomorrow.. Bye")
+        logger.log('info', "No fixtures in today's window.. Bye")
         sys.exit()
 
     fromdate = min(next_match['Date']).strftime('%d%m%Y')

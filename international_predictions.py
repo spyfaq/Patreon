@@ -40,6 +40,7 @@ import numpy as np
 
 import majorleague_predictions as mlp
 import football_data_org_client as fdo
+import date_utils
 from jsonlogger_class import JSONLogger
 
 COMPETITIONS = fdo.COMPETITIONS
@@ -57,11 +58,23 @@ def fetch_historical_matches(code, seasons_back=HISTORY_SEASONS_BACK):
     return fdo.fetch_historical_matches(code, seasons_back=seasons_back, logger=logger)
 
 
-def fetch_tomorrow_matches(code):
-    """Tomorrow's scheduled matches only -- matches the 1-day window cap
-    the rest of the pipeline now uses (see majorleague_predictions.py)."""
-    tomorrow = (datetime.date.today() + datetime.timedelta(days=1)).isoformat()
-    return fdo.fetch_matches_on_date(code, tomorrow, status="SCHEDULED", logger=logger)
+def fetch_today_window_matches(code):
+    """Matches within today's fetch window (today from the 08:00 cutoff
+    onward, plus tomorrow up to 08:00 -- see date_utils.py). Previously
+    fetched only tomorrow's exact calendar date, which excluded today's
+    own matches entirely and included all of tomorrow's regardless of
+    kickoff time. One ranged request covers both calendar days --
+    football-data.org's dateFrom/dateTo filter is whole-day only, so
+    date_utils narrows the result down to the actual time-of-day cutoff
+    afterward."""
+    today = datetime.date.today()
+    tomorrow = today + datetime.timedelta(days=1)
+    matches = fdo.fetch_matches(code, date_from=today.isoformat(), date_to=tomorrow.isoformat(),
+                                 status="SCHEDULED", logger=logger)
+    df = fdo.matches_to_df(matches)
+    if df.empty:
+        return df
+    return df[date_utils.in_fetch_window(df['Date'], df['Time'])]
 
 
 def historyfunc_international(hist_df, hw, aw):
@@ -138,9 +151,9 @@ def patch_mlp_internals(hist_df, competition_code):
 
 def run_competition(name, code):
     logger.log('info', f"Checking upcoming fixtures for {name} ({code})..")
-    next_match = fetch_tomorrow_matches(code)
+    next_match = fetch_today_window_matches(code)
     if next_match.empty:
-        logger.log('info', f"No fixtures tomorrow for {name}.. skipping")
+        logger.log('info', f"No fixtures in today's window for {name}.. skipping")
         return pd.DataFrame()
 
     logger.log('info', f"Fetching historical results for {name}..")
@@ -212,8 +225,8 @@ if __name__ == '__main__':
     else:
         logger = JSONLogger(log_file=LOGNAME, log_dir=LOGPATH)
 
-    tomorrow_str = (datetime.date.today() + datetime.timedelta(days=1)).strftime('%d%m%Y')
-    DATANAME = DATANAME.replace('{date1}', tomorrow_str).replace('{date2}', tomorrow_str) + '.csv'
+    today_str = datetime.date.today().strftime('%d%m%Y')
+    DATANAME = DATANAME.replace('{date1}', today_str).replace('{date2}', today_str) + '.csv'
 
     try:
         main()

@@ -7,6 +7,7 @@ import sys, os, argparse, time
 from datetime import datetime
 
 import football_data_org_client as fdo
+import date_utils
 
 
 URLS = {
@@ -18,15 +19,14 @@ def get_upcoming_fixtures(url):
     try:
         df = pd.read_csv(url)
 
-        # Parse date column
-        df["Date"] = pd.to_datetime(df["Date"], errors="coerce", dayfirst=True)
-
-        # Only tomorrow's fixtures -- matches the 1-day window the generation
-        # scripts now use. Previously unbounded (>= tomorrow, no upper
-        # limit), so it reported "fixtures found" even when the only
-        # matches were a week away.
-        tomorrow = pd.Timestamp(datetime.today().date()) + pd.Timedelta(days=1)
-        upcoming = df[df["Date"].dt.normalize() == tomorrow]
+        # Today's fetch window (today from the 08:00 cutoff onward, plus
+        # tomorrow up to 08:00 -- see date_utils.py). Previously matched
+        # tomorrow's calendar date only and ignored the Time column
+        # entirely, so a run on day X reported nothing found unless day
+        # X+1 already had fixtures listed, even though day X's own
+        # matches (which this run should also cover) were sitting right
+        # there in the same file.
+        upcoming = df[date_utils.in_fetch_window(df["Date"], df["Time"])]
 
         return upcoming
 
@@ -36,19 +36,24 @@ def get_upcoming_fixtures(url):
 
 
 def get_upcoming_international_fixtures():
-    """Tomorrow's scheduled matches across CL/WC/EC on football-data.org.
-    Any one of the 3 having a fixture is enough to report found=true --
-    international_predictions.py itself loops over all 3 and skips
-    whichever have nothing, same as majorleague/minorleague skip whichever
-    domestic divisions have no fixtures."""
-    tomorrow = (datetime.today().date() + pd.Timedelta(days=1)).isoformat()
+    """Scheduled matches across CL/WC/EC on football-data.org, within
+    today's fetch window. Any one of the 3 having a fixture is enough to
+    report found=true -- international_predictions.py itself loops over
+    all 3 and skips whichever have nothing, same as majorleague/
+    minorleague skip whichever domestic divisions have no fixtures."""
+    today = datetime.today().date()
+    tomorrow = today + pd.Timedelta(days=1)
     frames = []
     for name, code in fdo.COMPETITIONS.items():
         try:
-            df = fdo.fetch_matches_on_date(code, tomorrow, status="SCHEDULED")
+            matches = fdo.fetch_matches(code, date_from=today.isoformat(), date_to=tomorrow.isoformat(),
+                                         status="SCHEDULED")
+            df = fdo.matches_to_df(matches)
         except Exception as e:
             print(f"❌ Error fetching {name} ({code}): {e}")
             continue
+        if not df.empty:
+            df = df[date_utils.in_fetch_window(df["Date"], df["Time"])]
         if not df.empty:
             frames.append(df)
     return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()

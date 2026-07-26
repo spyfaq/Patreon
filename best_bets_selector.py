@@ -481,11 +481,16 @@ def main():
     df = attach_combo_edges(df)
 
     # Bucket by the same AdjustedDate rule predictions_tier.py uses (see
-    # date_utils.py) instead of stamping every output with
-    # date.today() -- the pipeline predicts TOMORROW's fixtures, so
-    # date.today() was always one day behind the actual match date, and a
-    # single run can legitimately span two AdjustedDate buckets at once
-    # (early-morning matches shifted back a day, everything else not).
+    # date_utils.py) instead of stamping every output with date.today() --
+    # the pipeline's fetch scripts now pull a window (today from 08:00
+    # onward, plus tomorrow up to 08:00) that matches this exact labeling
+    # rule, so a run's merged data should only ever resolve to ONE
+    # AdjustedDate bucket. Still grouped rather than assumed single as a
+    # defensive safety net (e.g. a source that hasn't adopted the fetch
+    # window, or a manual/backfilled data file spanning more than one
+    # day) -- date.today() would have been one full day behind the actual
+    # match date before this fix, since the pipeline predicts fixtures
+    # ahead of time.
     df['AdjustedDate'] = date_utils.adjusted_date_series(df['Date'], df['Time'])
 
     if not os.path.exists(PUBLISHPATH):

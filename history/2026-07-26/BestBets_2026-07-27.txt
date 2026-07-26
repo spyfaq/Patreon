@@ -1,0 +1,8 @@
+🎯 <b>Best Bets — 2026-07-27</b>
+<i>Ranked by model edge vs bookmaker odds, not just confidence</i>
+
+⚽ <b>Rosenborg vs Fredrikstad</b> (Norway)
+   → Home Win @ 1.71
+   Model: 58% | Market implies: 53% | Edge: +4.5pp | EV: -0.01 per unit
+
+📌 Edge = how much more likely our model thinks this is vs. what the odds imply. Higher edge and EV means better long-run value — not a guarantee on any single bet.

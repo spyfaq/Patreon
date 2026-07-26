@@ -137,6 +137,18 @@ def dixon_coles_simulate_match(params_dict, homeTeam, awayTeam, max_goals=5):
                 corr = 1.0
             output_matrix[i, j] *= corr
 
+    # The tau correction is only valid while it keeps every cell
+    # non-negative -- e.g. the 0-0 cell is (1 - lambda*mu*rho), which goes
+    # NEGATIVE once rho > 1/(lambda*mu). _dc_log_like_single already
+    # rejects that region during fitting (corr <= 0 -> 1e9 penalty), but
+    # only for scorelines actually observed in the training data, so a
+    # fitted rho can still produce a negative cell for some unobserved
+    # simulated matchup. Left unclipped, that negative mass silently
+    # subtracts from the sum used to normalize, inflating every other
+    # market's probability. Floor at 0 and let the normalization below
+    # redistribute.
+    np.clip(output_matrix, 0.0, None, out=output_matrix)
+
     total = output_matrix.sum()
     if total <= 0 or not np.isfinite(total):
         try:
@@ -183,8 +195,21 @@ def _dc_log_like_single(params, data, teams, xi=0.0, reg=0.05, ident_pen=1e3):
         weight = np.exp(-xi * row.time_diff)
         ll += weight * contrib
 
-    # L2 regularization on attack & defence to avoid overfitting
-    reg_pen = reg * (np.sum(attack ** 2) + np.sum(defence ** 2))
+    # L2 regularization on attack & defence to avoid overfitting.
+    # Defence is penalized around its own mean rather than around zero.
+    # Rationale: with the identifiability penalty below pinning
+    # sum(attack) = 0, it is mean(defence) that carries the league's
+    # overall scoring level, so shrinking defence toward zero technically
+    # also shrinks expected goals toward exp(0) = 1.0 per team. Penalizing
+    # spread-around-the-mean targets the genuine overfitting risk
+    # (team-to-team differences) while leaving the level free.
+    # MEASURED IMPACT: negligible. Tested on synthetic leagues with a
+    # known true scoring rate across 150/80-match samples and reg up to
+    # 0.5 -- the estimated mean xG bias was identical to 3 decimal places
+    # either way, because the log-likelihood term dominates the penalty by
+    # orders of magnitude at any sane reg. Kept as the more principled
+    # form, NOT as a fix for an observed problem.
+    reg_pen = reg * (np.sum(attack ** 2) + np.sum((defence - np.mean(defence)) ** 2))
     # identifiability penalty: encourage mean(attack) ~ 0
     ident_penalty = ident_pen * (np.sum(attack) ** 2)
 

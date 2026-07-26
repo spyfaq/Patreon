@@ -129,6 +129,14 @@ def dixon_coles_simulate_match(params_dict, homeTeam, awayTeam, max_goals=5):
                 corr = 1.0
             output_matrix[i, j] *= corr
 
+    # See majorleague_predictions.py for the full rationale: the tau
+    # correction can drive a cell negative (the 0-0 cell is
+    # 1 - lambda*mu*rho, which goes negative once rho > 1/(lambda*mu) --
+    # only ~0.33 for a high-scoring matchup, well inside the fitter's
+    # allowed rho range). Negative mass would otherwise silently subtract
+    # from the normalization total and inflate every other market.
+    np.clip(output_matrix, 0.0, None, out=output_matrix)
+
     total = output_matrix.sum()
     if total <= 0 or not np.isfinite(total):
         try:
@@ -176,7 +184,11 @@ def _dc_log_like_single(params, data, teams, xi=0.0, reg=0.05, ident_pen=1e3):
         ll += weight * contrib
 
     # L2 regularization on attack & defence to avoid overfitting
-    reg_pen = reg * (np.sum(attack ** 2) + np.sum(defence ** 2))
+    # Penalize defence around its own mean rather than zero -- see
+    # majorleague_predictions.py for the rationale (and the note that the
+    # measured impact is negligible; this is the more principled form,
+    # kept consistent across both fitters, not a fix for an observed bug).
+    reg_pen = reg * (np.sum(attack ** 2) + np.sum((defence - np.mean(defence)) ** 2))
     # identifiability penalty: encourage mean(attack) ~ 0
     ident_penalty = ident_pen * (np.sum(attack) ** 2)
 

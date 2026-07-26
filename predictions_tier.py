@@ -133,18 +133,35 @@ def get_color(val):
             return "background-color: #ffc7ce"
     return ""
 
+EMPTY_SUMMARY = {"matches": 0, "wins": 0, "draws": 0, "losses": 0,
+                 "gf": 0, "ga": 0, "avg_gf": 0.0, "avg_ga": 0.0}
+
+
 def parse_summary(summary: str):
-    parts = summary.split("|")
+    # Defense in depth, mirroring parse_form()'s fix for the same
+    # underlying cause: a team with no match history (e.g. newly promoted)
+    # is a legitimate, expected state upstream now produces a well-formed
+    # placeholder for (see majorleague/minorleague_predictions.py's
+    # NO_STATS), but this parser should never crash the whole run even if
+    # some other malformed/missing value reaches it -- a KeyError one
+    # script later than parse_form's is exactly what happened here in
+    # production.
+    if summary is None or isinstance(summary, float) or not str(summary).strip():
+        return dict(EMPTY_SUMMARY)
+
+    parts = str(summary).split("|")
     segment = parts[1].strip() if len(parts) > 1 else parts[0].strip()
 
     m = re.search(r"(\d+)M (\d+)W (\d+)D (\d+)L", segment)
+    if not m:
+        return dict(EMPTY_SUMMARY)
     matches, wins, draws, losses = map(int, m.groups())
 
     g = re.search(r"(\d+)-(\d+)", segment)
-    gf, ga = map(int, g.groups())
+    gf, ga = map(int, g.groups()) if g else (0, 0)
 
     a = re.search(r"\(([\d.]+)-([\d.]+)\)", segment)
-    avg_gf, avg_ga = map(float, a.groups())
+    avg_gf, avg_ga = map(float, a.groups()) if a else (0.0, 0.0)
 
     return {
             "matches": matches, "wins": wins, "draws": draws, "losses": losses,

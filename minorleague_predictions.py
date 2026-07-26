@@ -425,8 +425,24 @@ def resultdef(result, ht, at, divis, mdata, mtime, standings, old_df, lgdata, TH
                     logger.log('warning', f"No history data for {ht}-{at}",)
                 hist_perc = '-'
 
-            homestats = standings.loc[standings['team'] == ht, 'summary_home'].squeeze()
-            awaystats = standings.loc[standings['team'] == at, 'summary_away'].squeeze()
+            # calc_standings() only creates a row for a team that has
+            # appeared in an actual PLAYED result -- a promoted team, even
+            # though it now reaches this point via resolve_team_params()'s
+            # fallback, still has no standings row at all. .squeeze() on
+            # that empty lookup returns an empty Series (not NaN, not a
+            # string), which got embedded in the outcome frame, garbled
+            # through the CSV round-trip, and then failed to match
+            # parse_summary()'s regex downstream -- 'NoneType' object has
+            # no attribute 'groups'. Use .iloc[0] after an explicit
+            # emptiness check instead, with a well-formed zero-record
+            # placeholder string (still valid input to parse_summary())
+            # so a promoted team's fixture reads honestly as "no history"
+            # rather than crashing the whole league's run one script later.
+            NO_STATS = "0M 0W 0D 0L 0-0 (0.0-0.0)"
+            home_rows = standings.loc[standings['team'] == ht, 'summary_home']
+            away_rows = standings.loc[standings['team'] == at, 'summary_away']
+            homestats = home_rows.iloc[0] if not home_rows.empty else NO_STATS
+            awaystats = away_rows.iloc[0] if not away_rows.empty else NO_STATS
 
             rows.append([divis, mdata, mtime, ht, at, res, val.round(2), hist_perc, homestats, awaystats, '', ''])
 

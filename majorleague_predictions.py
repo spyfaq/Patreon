@@ -473,8 +473,23 @@ def resultdef(result, ht, at, divis, mdata, mtime, standings, lgdata, THRESH = N
         # qualifying market (previously recomputed calculate_win_and_goal_form
         # and re-merged the entire growing outcome frame on every iteration).
         form_df = calculate_win_and_goal_form(lgdata)
-        merged = outcome.merge(form_df, left_on='HomeTeam', right_on='team', suffixes=('', '_home'))
-        merged = merged.merge(form_df, left_on='AwayTeam', right_on='team', suffixes=('_home', '_away'))
+        # LEFT joins, not inner. An inner join silently DROPS any fixture
+        # whose team has no recent-form row -- which is exactly what a
+        # newly promoted team looks like, since form is computed from this
+        # league's own match history and a promoted side has none yet.
+        # With the promoted-team parameter fallback in resolve_team_params()
+        # those fixtures now reach this point instead of being skipped
+        # earlier, so an inner join here could drop every row and leave
+        # `merged` empty -- at which point merged.apply(...) returns a
+        # 0-column frame and assigning it to a 2-column key raised
+        # "ValueError: Columns must be same length as key" and killed the
+        # whole league's run. A left join keeps the fixture with empty form
+        # instead, which is the honest representation: we have a prediction
+        # but no form history to show alongside it.
+        merged = outcome.merge(form_df, left_on='HomeTeam', right_on='team',
+                                suffixes=('', '_home'), how='left')
+        merged = merged.merge(form_df, left_on='AwayTeam', right_on='team',
+                               suffixes=('_home', '_away'), how='left')
 
         # Function to select correct form based on prediction type
         def pick_form(row):
@@ -487,7 +502,16 @@ def resultdef(result, ht, at, divis, mdata, mtime, standings, lgdata, THRESH = N
             else:
                 return pd.Series([None, None])
 
-        merged[['HomeForm', 'AwayForm']] = merged.apply(pick_form, axis=1)
+        # Guard the empty case explicitly: DataFrame.apply on a 0-row frame
+        # returns a 0-COLUMN result, which cannot be assigned to a 2-column
+        # key. The left joins above make this unlikely, but `rows` could
+        # still be empty-after-filtering in principle, and a crash here
+        # takes down the entire league.
+        if merged.empty:
+            merged['HomeForm'] = pd.Series(dtype=object)
+            merged['AwayForm'] = pd.Series(dtype=object)
+        else:
+            merged[['HomeForm', 'AwayForm']] = merged.apply(pick_form, axis=1)
 
         # Final result
         outcome = merged[["Division", "Date", "Time", "HomeTeam", "AwayTeam", "Prediction", "Prediction %", 

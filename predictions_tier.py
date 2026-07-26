@@ -151,9 +151,20 @@ def parse_summary(summary: str):
             "gf": gf, "ga": ga, "avg_gf": avg_gf, "avg_ga": avg_ga
         }
 
+EMPTY_FORM = {"form": "", "wins": 0, "draws": 0, "losses": 0,
+              "overs": 0, "unders": 0, "total": 0}
+
+
 def parse_form(form_str: str):
-    if type(form_str) == float:
-        return {}
+    # Missing form (NaN/None/blank) previously returned {}, so every
+    # downstream lookup like home_form['wins'] raised KeyError and took
+    # down the whole run. A promoted team legitimately has no form history
+    # in this league yet -- and now reaches this point rather than being
+    # dropped earlier -- so "no form" has to be a supported state, not a
+    # crash. Return a fully-populated zero record; callers check
+    # total == 0 to phrase it honestly rather than claiming "won 0 of 0".
+    if form_str is None or isinstance(form_str, float) or not str(form_str).strip():
+        return dict(EMPTY_FORM)
     form = form_str.replace("-", "")  # remove unused slots
     total = len(form)
     wins = form.count("W")
@@ -180,8 +191,12 @@ def generate_reasoning(row):
 
     # Core stats (fixed away goals bug)
     if pred != "Both Teams to Score":
-        home_1 = f"{row['HomeTeam']} has won {home_form['wins']} of their last {home_form['total']} home games."
-        away_2 = f"{row['AwayTeam']} has won {away_form['wins']} of their last {away_form['total']} home games."
+        # total == 0 means no form on record (e.g. a newly promoted side);
+        # say so plainly instead of the nonsensical "won 0 of their last 0".
+        home_1 = (f"{row['HomeTeam']} has won {home_form['wins']} of their last {home_form['total']} home games."
+                  if home_form['total'] else f"{row['HomeTeam']} has no recent home form on record.")
+        away_2 = (f"{row['AwayTeam']} has won {away_form['wins']} of their last {away_form['total']} home games."
+                  if away_form['total'] else f"{row['AwayTeam']} has no recent form on record.")
 
     home_goals = f"{row['HomeTeam']} averages {(home_stats['avg_gf']):.1f} goals at home."
     away_goals = f"{row['AwayTeam']} averages {(away_stats['avg_gf']):.1f} goals at away."

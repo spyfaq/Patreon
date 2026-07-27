@@ -22,6 +22,23 @@ OVER_3_5_OFFSET = 0.6
 
 MIN_PAYABLE_ODD = 1.01  # guards against a degenerate/negative derived odd
 
+# Prediction code -> the odds column that prices it. Markets deliberately
+# absent from this map (GG, hO1_5, hO2_5, aO1_5, aO2_5) have no published
+# price in any source this project uses, so their rows carry no odd at all
+# rather than an invented one.
+MARKET_ODD_COLUMNS = {
+    '1': 'AvgH',
+    'X': 'AvgD',
+    '2': 'AvgA',
+    'O1_5': 'AvgOver15',
+    'O2_5': 'AvgOver25',
+    'O3_5': 'AvgOver35',
+}
+
+# Every odds column a fixture row needs to carry so that any prediction
+# made for it can be priced.
+ODD_COLUMNS = ['AvgH', 'AvgD', 'AvgA', 'AvgOver25', 'AvgOver15', 'AvgOver35']
+
 
 def derive_over_under_odds(over25):
     """Given a real Over 2.5 odd (scalar or pandas Series), return
@@ -42,3 +59,28 @@ def derive_over_under_odds(over25):
         over1_5 = np.nan
 
     return over1_5, over3_5
+
+
+def odd_for_prediction(pred, odds):
+    """Decimal odd for a single-market prediction code, read out of a
+    mapping of Avg* odds columns (a dict or a pandas Series row).
+
+    Returns None -- not a placeholder number -- when the market has no
+    published price at all (GG and the home/away-specific overs) or when
+    the source simply didn't carry one for this fixture. The prediction
+    row is still written either way; it just goes out without an odd,
+    which is the honest representation.
+    """
+    col = MARKET_ODD_COLUMNS.get(pred)
+    if col is None or odds is None or not hasattr(odds, 'get'):
+        return None
+
+    val = odds.get(col)
+    try:
+        val = float(val)
+    except (TypeError, ValueError):
+        return None
+
+    if not np.isfinite(val) or val < MIN_PAYABLE_ODD:
+        return None
+    return round(val, 2)

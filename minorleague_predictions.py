@@ -3,12 +3,13 @@
 
 import pandas as pd
 import numpy as np
-import  sys, os, datetime, warnings, json
+import  sys, os, warnings, json
 from scipy.stats import poisson
 from scipy.optimize import minimize
-from jsonlogger_class import JSONLogger
 import model_config
 import date_utils
+import odds_utils
+import team_utils
 from collections import defaultdict
 
 """
@@ -53,8 +54,12 @@ Path to save  data
 DATAPATH = 'predictions_data/'
 DATANAME = 'my_prediction_minor_data_{date1}_{date2}'
 PARAMSPATH = 'model_params/'
-LOGPATH = 'logs/simu/'
-LOGNAME = '{date}_my_prediction_minor_logs'
+
+# One row per (match, prediction), each carrying the bookmaker odd for
+# that specific prediction -- see resultdef().
+OUTPUT_COLUMNS = ["Division", "Date", "Time", "HomeTeam", "AwayTeam", "Prediction", "Odd",
+                  "Prediction %", "History %", "HomeTeam Stats", "AwayTeam Stats",
+                  "HomeForm", "AwayForm"]
 
 warnings.filterwarnings('ignore')
 
@@ -173,10 +178,7 @@ def dixon_coles_simulate_match(params_dict, homeTeam, awayTeam, max_goals=5):
 
     total = output_matrix.sum()
     if total <= 0 or not np.isfinite(total):
-        try:
-            logger.log('error', f"Non-positive total probability for {homeTeam}-{awayTeam}", info=str(total))
-        except Exception:
-            pass
+        print(f"ERROR: Non-positive total probability for {homeTeam}-{awayTeam} ({total})")
         sz = output_matrix.shape[0]
         return np.ones((sz, sz)) / (sz * sz)
 
@@ -335,7 +337,11 @@ def solve_parameters_decay(dataset, xi=None, debug=False, init_vals=None, option
     param_names = ["attack_" + team for team in teams] + ["defence_" + team for team in teams] + ['rho', 'home_adv']
     return dict(zip(param_names, x))
 
-def resultdef(result, ht, at, divis, mdata, mtime, standings, old_df, lgdata, THRESH = None):
+def resultdef(result, ht, at, divis, mdata, mtime, standings, old_df, lgdata, odds=None, THRESH = None):
+    # `odds` is that fixture's bookmaker average prices (a dict/Series of
+    # the Avg* columns, see upcoming()). Every qualifying market becomes
+    # its own row carrying the odd for that specific market, so the output
+    # is "one row per prediction, priced", not one row per match.
     # THRESH is now per-market rather than one flat number (pass an explicit
     # value to override for every market). See majorleague_predictions.py
     # for the full rationale: a flat 0.5 meant something different depending
@@ -381,48 +387,23 @@ def resultdef(result, ht, at, divis, mdata, mtime, standings, old_df, lgdata, TH
             'aO2_5': aO2_5,
             }
 
-    # Bet builder: exact joint probabilities for every {1,X,2} x goal-market
-    # combo, computed directly from the score grid rather than assuming
-    # independence (see majorleague_predictions.py for the full rationale).
-    side_masks = {'1': gi > gj, 'X': gi == gj, '2': gi < gj}
-    goal_masks = {
-        'O1_5': total_goals > 1, 'O2_5': total_goals > 2, 'O3_5': total_goals > 3,
-        'GG': (gi >= 1) & (gj >= 1),
-        'hO1_5': gi >= 2, 'hO2_5': gi >= 3,
-        'aO1_5': gj >= 2, 'aO2_5': gj >= 3,
-    }
-    combo_dict = {}
-    for side_name, side_mask in side_masks.items():
-        for goal_name, goal_mask in goal_masks.items():
-            combo_dict[f'{side_name}+{goal_name}'] = result[side_mask & goal_mask].sum()
+    outcome = pd.DataFrame(columns=OUTPUT_COLUMNS)
 
-    outcome = pd.DataFrame(columns=["Division", "Date", "Time", "HomeTeam", "AwayTeam", "Prediction", "Prediction %", 
-                             "History %", "HomeTeam Stats", "AwayTeam Stats", "HomeForm", "AwayForm"])
-    
-    logger.log('info', "Calculating class history", info=str(f'{ht}-{at}'))
+    print(f"Calculating class history for {ht}-{at}")
     hist_dict = historyfunc(path, ht, at, old_df)
     rows = []
 
-    # Same rationale as majorleague_predictions.py: combos are intersections
-    # so they're inherently lower-probability than either leg alone; this is
-    # just a sanity floor, real ranking happens in best_bets_selector.py.
-    COMBO_THRESH = 0.10
-
-    for res in list(dict.keys()) + list(combo_dict.keys()):
-        is_combo = res in combo_dict
-        val = combo_dict[res] if is_combo else dict[res]
-        if is_combo:
-            this_thresh = COMBO_THRESH
-        elif THRESH is not None:
+    for res in dict.keys():
+        val = dict[res]
+        if THRESH is not None:
             this_thresh = THRESH          # explicit caller override
         else:
             this_thresh = model_config.get_record_floor(res)
         if val > this_thresh:
             try:
                 hist_perc = hist_dict[res]
-            except:
-                if not is_combo:
-                    logger.log('warning', f"No history data for {ht}-{at}",)
+            except KeyError:
+                print(f"WARNING: No history data for {ht}-{at} ({res})")
                 hist_perc = '-'
 
             # calc_standings() only creates a row for a team that has
@@ -444,11 +425,15 @@ def resultdef(result, ht, at, divis, mdata, mtime, standings, old_df, lgdata, TH
             homestats = home_rows.iloc[0] if not home_rows.empty else NO_STATS
             awaystats = away_rows.iloc[0] if not away_rows.empty else NO_STATS
 
-            rows.append([divis, mdata, mtime, ht, at, res, val.round(2), hist_perc, homestats, awaystats, '', ''])
+            # Odd for THIS market specifically. None when the market has
+            # no published price (GG, home/away-specific overs) or the
+            # fixture feed carried no odds for this match.
+            odd = odds_utils.odd_for_prediction(res, odds)
+
+            rows.append([divis, mdata, mtime, ht, at, res, odd, val.round(2), hist_perc, homestats, awaystats, '', ''])
 
     if rows:
-        outcome = pd.DataFrame(rows, columns=["Division", "Date", "Time", "HomeTeam", "AwayTeam", "Prediction", "Prediction %",
-                                 "History %", "HomeTeam Stats", "AwayTeam Stats", "HomeForm", "AwayForm"])
+        outcome = pd.DataFrame(rows, columns=OUTPUT_COLUMNS)
 
         form_df = calculate_win_and_goal_form(lgdata)
         # LEFT joins, not inner. An inner join silently DROPS any fixture
@@ -472,10 +457,9 @@ def resultdef(result, ht, at, divis, mdata, mtime, standings, old_df, lgdata, TH
         # Function to select correct form based on prediction type
         def pick_form(row):
             pred = row['Prediction']
-            goal_leg = pred.split('+')[1] if '+' in pred else pred
             if pred in ['1', '2', 'X']:
                 return pd.Series([row['HomeWinForm_home'], row['AwayWinForm_away']])
-            elif goal_leg in ['O1_5', 'O2_5', 'O3_5', 'GG', 'hO1_5', 'hO2_5', 'aO1_5', 'aO2_5']:
+            elif pred in ['O1_5', 'O2_5', 'O3_5', 'GG', 'hO1_5', 'hO2_5', 'aO1_5', 'aO2_5']:
                 return pd.Series([row['HomeGoalsForm_home'], row['AwayGoalsForm_away']])
             else:
                 return pd.Series([None, None])
@@ -492,8 +476,7 @@ def resultdef(result, ht, at, divis, mdata, mtime, standings, old_df, lgdata, TH
             merged[['HomeForm', 'AwayForm']] = merged.apply(pick_form, axis=1)
 
         # Final result
-        outcome = merged[["Division", "Date", "Time", "HomeTeam", "AwayTeam", "Prediction", "Prediction %", 
-                         "History %", "HomeTeam Stats", "AwayTeam Stats", "HomeForm", "AwayForm"]]
+        outcome = merged[OUTPUT_COLUMNS]
 
     return(outcome)
 
@@ -535,10 +518,39 @@ def download_league_data(url):
 
     return (league_data, old_league)
 
+def attach_fixture_odds(next_match):
+    """Normalize whichever bookmaker-average columns the fixtures feed
+    happens to publish into the fixed Avg* set every prediction row is
+    priced from (see odds_utils.MARKET_ODD_COLUMNS).
+
+    football-data.co.uk publishes 1X2 (AvgH/AvgD/AvgA) and, not always,
+    Over/Under 2.5 as 'Avg>2.5' -- so it's looked up tolerantly rather
+    than indexed directly, and anything missing becomes NaN instead of a
+    KeyError that would kill the whole run. Over 1.5 / Over 3.5 have no
+    published market at all and are derived from the real Over 2.5 price
+    (see odds_utils.derive_over_under_odds).
+    """
+    found = team_utils.find_columns(next_match.columns, ['AvgH', 'AvgD', 'AvgA', 'Avg>2.5'])
+    rename = {c: 'AvgOver25' for c in found if c.strip().lower() == 'avg>2.5'}
+    next_match = next_match.rename(columns=rename)
+
+    for col in ['AvgH', 'AvgD', 'AvgA', 'AvgOver25']:
+        if col in next_match.columns:
+            next_match[col] = pd.to_numeric(next_match[col], errors='coerce')
+        else:
+            next_match[col] = np.nan
+
+    next_match['AvgOver15'], next_match['AvgOver35'] = odds_utils.derive_over_under_odds(next_match['AvgOver25'])
+    return next_match
+
+
 def upcoming(uri):
     next_match = pd.read_csv(uri, encoding='utf-8-sig')
-    next_match = next_match[['Date','Time', 'Country', 'Home','Away']]
-    next_match = next_match.rename(columns={'Country': 'Div', 'Home': 'HomeTeam', 'Away': 'AwayTeam'})    
+    keep = ['Date', 'Time', 'Country', 'Home', 'Away'] + team_utils.find_columns(
+        next_match.columns, ['AvgH', 'AvgD', 'AvgA', 'Avg>2.5'])
+    next_match = next_match[keep]
+    next_match = next_match.rename(columns={'Country': 'Div', 'Home': 'HomeTeam', 'Away': 'AwayTeam'})
+    next_match = attach_fixture_odds(next_match)
     next_match['Date'] = pd.to_datetime(next_match['Date'], format='%d/%m/%Y')
     return next_match
 
@@ -572,9 +584,9 @@ def save_results_(df):
         towrite['Datetime_temp'] = towrite.apply(lambda x: pd.Timestamp.combine(x['Date_temp'], x['Time_temp']), axis=1)
         towrite.sort_values(by=['Datetime_temp', 'HomeTeam'], inplace=True)
         towrite.drop(columns=['Date_temp', 'Time_temp', 'Datetime_temp'],inplace=True)
-    except:
-        logger.log('error', f"Issue converting date.. Saving without sorting..")
-        
+    except Exception as e:
+        print(f"ERROR: Issue converting date.. Saving without sorting.. ({e})")
+
     towrite.to_csv(filename, index=False)
 
 def historyfunc(path, hw, aw, old_df):
@@ -848,18 +860,8 @@ def calc_standings(results, season=None):
 
 if __name__ == '__main__':
     os.chdir(os.path.dirname(__file__))
-    datesave = datetime.date.today().strftime('%Y%m%d')
-    LOGNAME = LOGNAME.replace('{date}', datesave) + '.json'
 
-    if os.path.exists(LOGPATH + '/' +LOGNAME):
-        logger = JSONLogger(log_file=LOGNAME, log_dir=LOGPATH)
-        logger.log('critical', "Tried to rerun! Forced exit app!")
-        exit()
-    else:
-        logger = JSONLogger(log_file=LOGNAME, log_dir=LOGPATH)
-
-
-    logger.log('info', "Downloading schedule..")
+    print("Downloading schedule..")
     next_match = upcoming('https://www.football-data.co.uk/new_league_fixtures.csv')
 
     # Fetch window: see majorleague_predictions.py for the full rationale
@@ -867,70 +869,70 @@ if __name__ == '__main__':
     next_match = next_match[date_utils.in_fetch_window(next_match['Date'], next_match['Time'])]
 
     if next_match.empty:
-        logger.log('info', "No fixtures in today's window.. Bye")
+        print("No fixtures in today's window.. Bye")
         sys.exit()
 
     fromdate = min(next_match['Date']).strftime('%d%m%Y')
     todate = max(next_match['Date']).strftime('%d%m%Y')
     DATANAME = DATANAME.replace('{date1}', fromdate).replace('{date2}', todate) + '.csv'
-    if os.path.exists(DATAPATH + '/' +DATANAME):
-        logger = JSONLogger(log_file=LOGNAME, log_dir=LOGPATH)
-        logger.log('critical', "Data exists already! Forced exit app!")
-        exit()
 
-    logger.log('info', "Running for each league..", info=str(len(LEAGUES)))
+    print(f"Running for each league.. ({len(LEAGUES)})")
     results_df = pd.DataFrame()
     for key in LEAGUES:
-        
+
         div_df = pd.DataFrame()
         divi = LEAGUES[key]
         divis = key
 
         if (key in next_match['Div'].unique()) == False:
-            logger.log('warning', f"No match to simulate for {divis}..")
+            print(f"WARNING: No match to simulate for {divis}..")
             continue
 
         prefix = "https://www.football-data.co.uk/"
         pre = F"new/{divi}.csv"
         path = prefix + pre
-        logger.log('info', f"Downloading {divis} data..", info=str(path))
+        print(f"Downloading {divis} data.. ({path})")
         league_data, old_data = download_league_data(path)
 
-        logger.log('info', f"Calculating standings for {divis}..")
+        print(f"Calculating standings for {divis}..")
         Standings = {}
         standings_df = calc_standings(league_data)
 
-        logger.log('info', f"Calculating parameters for {divis}..")
+        print(f"Calculating parameters for {divis}..")
         try:
             teams_sorted = np.sort(league_data['HomeTeam'].unique())
             warm_start = load_cached_params(divis, teams_sorted)
             params = solve_parameters_decay(league_data, init_vals=warm_start)
             save_cached_params(divis, params)
         except Exception as e:
-            logger.log('error', f"Simulating problem.. skipping {divis}.. ", info=str(e))
+            print(f"ERROR: Simulating problem.. skipping {divis}.. ({e})")
             continue
 
-        logger.log('info', f"Simulating matches for {divis}..")
+        print(f"Simulating matches for {divis}..")
         for match in next_match.loc[next_match['Div']==divis].index:
             ht = next_match['HomeTeam'][match]
             at = next_match['AwayTeam'][match]
             mdate = next_match['Date'][match]
             mtime = next_match['Time'][match]
+            # This fixture's own prices, carried through from the
+            # fixtures feed so each prediction row can be priced.
+            match_odds = {col: next_match[col][match] for col in odds_utils.ODD_COLUMNS}
 
             try:
                 result = dixon_coles_simulate_match(params, ht, at)
             except Exception as e:
-                logger.log('error', f"Issue encountered during simulation of {ht, at}", info=str(e))
+                print(f"ERROR: Issue encountered during simulation of {ht, at} ({e})")
                 continue
 
-            res = resultdef(result, ht, at, divis, mdate, mtime, standings_df, old_data, league_data)
+            res = resultdef(result, ht, at, divis, mdate, mtime, standings_df, old_data, league_data,
+                            odds=match_odds)
             results_df = pd.concat([results_df, res])
             div_df = pd.concat([div_df, res])
-        
+
         try:
-            logger.log('info', f"{divis} completed. Appending data to csv..")
+            print(f"{divis} completed. Appending data to csv..")
             save_results_(div_df)
         except Exception as e:
-            logger.log('critical', f"Issue during saving of {divis}..", info=str(e))
+            print(f"CRITICAL: Issue during saving of {divis}.. ({e})")
 
-    logger.log('info', 'Simulation completed..')
+    print('Simulation completed..')

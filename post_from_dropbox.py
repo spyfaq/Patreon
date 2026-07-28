@@ -147,12 +147,12 @@ for tier in CHAT_IDS.keys():
             else:
                 print(f"Failed to post {csv_file['name']} to {tier}")
 
-# Best Bets (value-bet picks from best_bets_selector.py) and Suggested
-# Bets (its accumulator slip) are both VIP-tier bonus messages, posted
-# separately from the tier loop above since neither filename starts with
-# "Public" or "VIP" -- the loop's startswith(tier) match would never find
-# either of them.
-for label, prefix in [("Best Bets", "BestBets"), ("Suggested Bets", "SuggestedBets")]:
+# Best Bets (value picks from publish_predictions.py) is a VIP-tier bonus
+# message, posted separately from the tier loop above because its filename
+# starts with neither "Public" nor "VIP" -- the loop's startswith(tier)
+# match would never find it. SuggestedBets used to be posted here too; the
+# accumulator that produced it has been removed.
+for label, prefix in [("Best Bets", "BestBets")]:
     for date_str in CANDIDATE_DATE_STRS:
         bonus_file = next(
             (f for f in files if f["name"].startswith(prefix) and f["name"].endswith(f"{date_str}.txt")),

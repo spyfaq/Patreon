@@ -194,17 +194,13 @@ jobs:
       - name: Merge Predictions
         run: python predictions_merger.py
 
-      - name: Tier Predictions
-        run: python predictions_tier.py
-
-      - name: Run Best Bets / Suggested Bets Selector
-        # Reads the same merged predictions_data/*.csv that Tier
-        # Predictions just used; writes BestBets_*, BetBuilder_*, and
-        # SuggestedBets_* into publish/ alongside the VIP/Public files, so
+      - name: Publish Predictions
+        # Replaces the old Tier Predictions + Best Bets steps. Reads the
+        # merged predictions_data/merged-prediction-<date>.csv and writes
+        # Public_*, VIP_*.txt, VIP_*.xlsx and BestBets_* into publish/, so
         # they ride along on the existing upload/download/posting/history
         # steps below without any changes to those.
-        continue-on-error: true
-        run: python best_bets_selector.py
+        run: python publish_predictions.py
 
       - name: Upload Predictions
         uses: actions/upload-artifact@v4

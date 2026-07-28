@@ -23,6 +23,7 @@ OVER_3_5_OFFSET = 0.6
 MIN_PAYABLE_ODD = 1.01  # guards against a degenerate/negative derived odd
 
 
+
 def derive_over_under_odds(over25):
     """Given a real Over 2.5 odd (scalar or pandas Series), return
     (over1_5, over3_5) estimated odds: Over2.5 - 0.3 and Over2.5 + 0.6.
@@ -42,3 +43,4 @@ def derive_over_under_odds(over25):
         over1_5 = np.nan
 
     return over1_5, over3_5
+

@@ -8,6 +8,8 @@ from scipy.stats import poisson
 from scipy.optimize import minimize
 import model_config
 import date_utils
+import market_odds
+import team_utils
 from collections import defaultdict
 
 """
@@ -58,8 +60,21 @@ DIVISIONS = {
 Path to save  data
 """
 DATAPATH = 'predictions_data/'
-DATANAME = 'my_prediction_major_data_{date1}_{date2}'
+# One file per run, named for the single betting day it covers (09:00 that
+# day through 08:59 the next -- see date_utils). The old
+# '..._{date1}_{date2}' span name existed because a run could straddle two
+# calendar dates; the day is now identified by date_utils.adjusted_date_series
+# instead, so one date is the whole answer.
+DATANAME = 'major_prediction_{date}'
 PARAMSPATH = 'model_params/'
+
+# Exported columns, in order. Odd / Implied % / Edge % are the bookmaker
+# price for that specific market and what it implies -- blank for markets
+# with no published price (see market_odds.py).
+OUTPUT_COLUMNS = ["Division", "Date", "Time", "HomeTeam", "AwayTeam",
+                  "Prediction", "Prediction %", "Odd", "Implied %", "Edge %",
+                  "History %", "HomeTeam Stats", "AwayTeam Stats",
+                  "HomeForm", "AwayForm"]
 
 warnings.filterwarnings('ignore')
 
@@ -350,7 +365,8 @@ def solve_parameters_decay(dataset, xi=None, debug=False, init_vals=None, option
     param_names = ["attack_" + team for team in teams] + ["defence_" + team for team in teams] + ['rho', 'home_adv']
     return dict(zip(param_names, x))
 
-def resultdef(result, ht, at, divis, mdata, mtime, standings, lgdata, THRESH = None):
+def resultdef(result, ht, at, divis, mdata, mtime, standings, lgdata, THRESH = None,
+              odds_row=None, form_df=None, calibration=None):
     # THRESH is now per-market rather than one flat number (pass an explicit
     # value to override for every market). Rationale: a flat 0.5 meant
     # something completely different depending on the market's natural
@@ -400,59 +416,37 @@ def resultdef(result, ht, at, divis, mdata, mtime, standings, lgdata, THRESH = N
             'aO2_5': aO2_5,
             }
 
-    # Bet builder: exact joint probabilities for every {1,X,2} x goal-market
-    # combo, computed directly from the score grid rather than assuming
-    # independence (P(1) x P(O2.5) would be biased -- a home win and a high
-    # scoreline are correlated, so multiplying the singles under- or
-    # over-states the real joint probability depending on the pair).
-    side_masks = {'1': gi > gj, 'X': gi == gj, '2': gi < gj}
-    goal_masks = {
-        'O1_5': total_goals > 1, 'O2_5': total_goals > 2, 'O3_5': total_goals > 3,
-        'GG': (gi >= 1) & (gj >= 1),
-        'hO1_5': gi >= 2, 'hO2_5': gi >= 3,
-        'aO1_5': gj >= 2, 'aO2_5': gj >= 3,
-    }
-    combo_dict = {}
-    for side_name, side_mask in side_masks.items():
-        for goal_name, goal_mask in goal_masks.items():
-            combo_dict[f'{side_name}+{goal_name}'] = result[side_mask & goal_mask].sum()
-
-    outcome = pd.DataFrame(columns=["Division", "Date", "Time", "HomeTeam", "AwayTeam", "Prediction", "Prediction %", 
-                             "History %", "HomeTeam Stats", "AwayTeam Stats", "HomeForm", "AwayForm"])
+    outcome = pd.DataFrame(columns=OUTPUT_COLUMNS)
     rows = []
     hist_dict = None
 
-    # Combos are intersections of two events, so they're inherently
-    # lower-probability than either leg alone -- applying the same THRESH
-    # used for singles (0.5) would silently filter out virtually all of
-    # them. Real ranking/filtering for combos happens downstream in
-    # best_bets_selector.py (by edge vs. a market baseline); this is just a
-    # sanity floor to drop near-impossible noise (e.g. "Draw + Home team
-    # over 2.5 goals").
-    COMBO_THRESH = 0.10
+    for res in dict.keys():
+        # Raw grid probability -> calibrated. Previously the exported
+        # probability was always the raw model number, with calibration
+        # applied only much later inside best_bets_selector -- so anything
+        # reading this file directly saw uncalibrated values. calibrate_prob
+        # is a no-op until backtest_calibration.py has written
+        # calibration.json, so this changes nothing until there is a
+        # measured calibration to apply.
+        val = model_config.calibrate_prob(float(dict[res]), res, calibration)
 
-    for res in list(dict.keys()) + list(combo_dict.keys()):
-        is_combo = res in combo_dict
-        val = combo_dict[res] if is_combo else dict[res]
-        if is_combo:
-            this_thresh = COMBO_THRESH
-        elif THRESH is not None:
-            this_thresh = THRESH          # explicit caller override
-        else:
-            this_thresh = model_config.get_record_floor(res)
+        this_thresh = THRESH if THRESH is not None else model_config.get_record_floor(res)
         if val > this_thresh:
             if hist_dict is None:
-                print("Calculating class history", f'{ht}-{at}')
                 hist_dict = historyfunc(path, ht, at)
             try:
                 hist_perc = hist_dict[res]
             except:
-                # Combos have no dedicated history lookup (historyfunc only
-                # knows single-market codes) -- this is expected, not a
-                # missing-data warning, so log it quietly for combos.
-                if not is_combo:
-                    print(f"WARNING: No history data for {ht}-{at}")
+                print(f"WARNING: No history data for {ht}-{at}")
                 hist_perc = '-'
+
+            # Bookmaker price for this specific market, plus what it implies
+            # and how far the model sits from it. Unpriced markets (GG and
+            # the team-goal markets) come back as None and export as blank
+            # cells -- see market_odds.py for why they aren't guessed.
+            odd = market_odds.odd_for(res, odds_row)
+            implied = market_odds.implied_prob(odd)
+            model_edge = market_odds.edge(val, odd)
 
             # calc_standings() only creates a row for a team that has
             # appeared in an actual PLAYED result -- a promoted team, even
@@ -473,16 +467,25 @@ def resultdef(result, ht, at, divis, mdata, mtime, standings, lgdata, THRESH = N
             homestats = home_rows.iloc[0] if not home_rows.empty else NO_STATS
             awaystats = away_rows.iloc[0] if not away_rows.empty else NO_STATS
 
-            rows.append([divis, mdata, mtime, ht, at, res, val.round(2), hist_perc, homestats, awaystats, '', ''])
+            # round(), not val.round(2): val is a plain float once it has
+            # been through calibrate_prob, and float has no .round method.
+            # 4dp rather than 2dp because Edge % is a difference of two
+            # probabilities -- at 2dp it quantizes into uselessly coarse
+            # steps.
+            rows.append([divis, mdata, mtime, ht, at, res, round(val, 4),
+                         odd, implied, model_edge,
+                         hist_perc, homestats, awaystats, '', ''])
 
     if rows:
-        outcome = pd.DataFrame(rows, columns=["Division", "Date", "Time", "HomeTeam", "AwayTeam", "Prediction", "Prediction %",
-                                 "History %", "HomeTeam Stats", "AwayTeam Stats", "HomeForm", "AwayForm"])
+        outcome = pd.DataFrame(rows, columns=OUTPUT_COLUMNS)
 
-        # Form data + merge computed once for the whole match, not once per
-        # qualifying market (previously recomputed calculate_win_and_goal_form
-        # and re-merged the entire growing outcome frame on every iteration).
-        form_df = calculate_win_and_goal_form(lgdata)
+        # Form is a whole-league computation that does not vary by fixture,
+        # so the caller computes it ONCE per league and passes it in. It
+        # used to be recomputed here on every match -- for a league with 10
+        # fixtures that was 10 identical passes over the same season data.
+        # Falling back to computing it keeps this callable standalone.
+        if form_df is None:
+            form_df = calculate_win_and_goal_form(lgdata)
         # LEFT joins, not inner. An inner join silently DROPS any fixture
         # whose team has no recent-form row -- which is exactly what a
         # newly promoted team looks like, since form is computed from this
@@ -501,13 +504,14 @@ def resultdef(result, ht, at, divis, mdata, mtime, standings, lgdata, THRESH = N
         merged = merged.merge(form_df, left_on='AwayTeam', right_on='team',
                                suffixes=('_home', '_away'), how='left')
 
-        # Function to select correct form based on prediction type
+        # Function to select correct form based on prediction type. Combos
+        # are no longer emitted, so a prediction code is always a single
+        # market and the old '+'-splitting is gone.
         def pick_form(row):
             pred = row['Prediction']
-            goal_leg = pred.split('+')[1] if '+' in pred else pred
             if pred in ['1', '2', 'X']:
                 return pd.Series([row['HomeWinForm_home'], row['AwayWinForm_away']])
-            elif goal_leg in ['O1_5', 'O2_5', 'O3_5', 'GG', 'hO1_5', 'hO2_5', 'aO1_5', 'aO2_5']:
+            elif pred in ['O1_5', 'O2_5', 'O3_5', 'GG', 'hO1_5', 'hO2_5', 'aO1_5', 'aO2_5']:
                 return pd.Series([row['HomeGoalsForm_home'], row['AwayGoalsForm_away']])
             else:
                 return pd.Series([None, None])
@@ -524,8 +528,7 @@ def resultdef(result, ht, at, divis, mdata, mtime, standings, lgdata, THRESH = N
             merged[['HomeForm', 'AwayForm']] = merged.apply(pick_form, axis=1)
 
         # Final result
-        outcome = merged[["Division", "Date", "Time", "HomeTeam", "AwayTeam", "Prediction", "Prediction %", 
-                         "History %", "HomeTeam Stats", "AwayTeam Stats", "HomeForm", "AwayForm"]]
+        outcome = merged[OUTPUT_COLUMNS]
 
     return(outcome)
 
@@ -539,10 +542,37 @@ def download_league_data(url):
     return (league_data)
 
 def upcoming(uri):
+    """Today's fixture list, WITH the bookmaker odds columns that come in
+    the same file.
+
+    fixtures.csv already carries AvgH/AvgD/AvgA and Avg>2.5/Avg<2.5. This
+    used to select only the five identity columns and throw the prices
+    away, so the odds had to be fetched by re-downloading the exact same
+    URL later (predictions_merger.odd_addition, best_bets_selector.
+    fetch_market_odds). Keeping them here means each prediction row can be
+    priced without a second network round-trip.
+
+    Odds columns are selected defensively: football-data.co.uk publishes
+    fixtures.csv without them between rounds, and a missing price should
+    degrade to a blank odd, never abort the run."""
     next_match = pd.read_csv(uri, encoding='utf-8-sig')
-    next_match = next_match[['Date','Time','Div','HomeTeam','AwayTeam']]
+
+    base_cols = ['Date', 'Time', 'Div', 'HomeTeam', 'AwayTeam']
+    odds_cols = team_utils.find_columns(next_match.columns,
+                                        ['AvgH', 'AvgD', 'AvgA', 'Avg>2.5', 'Avg<2.5'])
+    missing = [c for c in base_cols if c not in next_match.columns]
+    if missing:
+        raise KeyError(f"fixtures.csv missing required columns: {missing}")
+    if not odds_cols:
+        print("WARNING: fixtures.csv carries no odds columns; predictions will export unpriced.")
+
+    next_match = next_match[base_cols + odds_cols]
+    next_match = next_match.rename(columns={c: 'AvgOver25' for c in odds_cols
+                                            if c.strip().lower() == 'avg>2.5'})
+    next_match = next_match.rename(columns={c: 'AvgUnder25' for c in odds_cols
+                                            if c.strip().lower() == 'avg<2.5'})
     next_match['Date'] = pd.to_datetime(next_match['Date'], format='%d/%m/%Y')
-    return next_match
+    return market_odds.add_derived_columns(next_match)
 
 def load_fixtures_rapidapi():
     url = "https://api-football-v1.p.rapidapi.com/v3/fixtures"
@@ -580,16 +610,26 @@ def load_fixtures_rapidapi():
     df['Date'] = pd.to_datetime(df['Date'], format='%d/%m/%Y')
     return df
 
-def save_results_(df):
+def save_results_(df, filename=None):
+    """Write the run's predictions.
+
+    Called ONCE with the whole run's frame rather than once per division.
+    The per-division version re-read the entire growing CSV off disk and
+    re-concatenated it on every league, so the last league in a 17-league
+    run parsed everything the previous 16 had written -- quadratic in
+    output size for no benefit. It also meant a crash midway left a
+    partially-written file that the next run's 'data exists already' guard
+    would treat as a completed run.
+    """
+    if df is None or df.empty:
+        print("Nothing to save..")
+        return
+
     if not os.path.exists(DATAPATH):
         os.makedirs(DATAPATH)
-    filename = DATAPATH + '/' + DATANAME
+    filename = filename or (DATAPATH + '/' + DATANAME)
 
-    if os.path.exists(filename):
-        temp = pd.read_csv(filename)
-        towrite = pd.concat([temp,df])
-    else:
-        towrite = df
+    towrite = df.copy()
 
     try:
         # Combine Date and Time into a single datetime in UTC
@@ -601,17 +641,30 @@ def save_results_(df):
         # Convert from UTC to Greece time (Athens)
         dt_gr = dt_utc.dt.tz_convert('Europe/Athens')
 
-        # Update your DataFrame
-        towrite['Date'] = dt_gr.dt.strftime('%Y-%m-%d') + ', ' + dt_gr.dt.day_name(locale='en_US')
-        towrite['Time'] = dt_gr.dt.strftime('%H:%M')  
+        # Update your DataFrame.
+        #
+        # day_name() is called WITHOUT locale='en_US'. That argument asks
+        # the C library for a locale that is frequently not installed
+        # (a slim CI image generally ships only C/C.UTF-8), and when it is
+        # missing this raises "unsupported locale setting" -- which the
+        # except below swallowed, so the Athens conversion AND the sort
+        # were both silently skipped and rows were written in whatever
+        # order they happened to be generated. Bare day_name() already
+        # returns English names, so the argument bought nothing and cost
+        # the entire block.
+        towrite['Date'] = dt_gr.dt.strftime('%Y-%m-%d') + ', ' + dt_gr.dt.day_name()
+        towrite['Time'] = dt_gr.dt.strftime('%H:%M')
 
         towrite['Date_temp'] = pd.to_datetime(towrite['Date'], format="%Y-%m-%d, %A")
         towrite['Time_temp'] = pd.to_datetime(towrite['Time'], format="%H:%M").dt.time
         towrite['Datetime_temp'] = towrite.apply(lambda x: pd.Timestamp.combine(x['Date_temp'], x['Time_temp']), axis=1)
         towrite.sort_values(by=['Datetime_temp', 'HomeTeam'], inplace=True)
         towrite.drop(columns=['Date_temp', 'Time_temp', 'Datetime_temp'],inplace=True)
-    except:
-        print(f"ERROR: Issue converting date.. Saving without sorting..")
+    except Exception as e:
+        # Still non-fatal -- an unsorted file beats no file -- but say WHAT
+        # went wrong. The bare `except:` here reported only that something
+        # had, which is how the locale failure above went unnoticed.
+        print(f"ERROR: Issue converting date.. Saving without sorting..", e)
     towrite.to_csv(filename, index=False)
 
 def calculate_win_and_goal_form(df):
@@ -893,30 +946,36 @@ if __name__ == '__main__':
     next_match = upcoming('https://www.football-data.co.uk/fixtures.csv')
     #next_match = load_fixtures_rapidapi()
 
-    # Fetch window: today from the 08:00 cutoff onward, plus tomorrow up
-    # to 08:00 (see date_utils.py). Previously this filtered to `Date ==
-    # tomorrow` exactly -- a run on day X only ever fetched day X+1's
-    # fixtures, never day X's own daytime/evening matches, and everything
-    # in day X+1 (even matches well after the cutoff) got swept into that
-    # batch instead of being left for day X+1's own run.
+    # Fetch window: today from the 09:00 cutoff onward, plus tomorrow up
+    # to 09:00 (see date_utils.py) -- so a 21:00 kickoff tonight and a
+    # 01:30 kickoff after midnight both belong to today's run, while last
+    # night's matches were already covered by yesterday's.
     next_match = next_match[date_utils.in_fetch_window(next_match['Date'], next_match['Time'])]
 
     if next_match.empty:
         print("No fixtures in today's window.. Bye")
         sys.exit()
 
-    fromdate = min(next_match['Date']).strftime('%d%m%Y')
-    todate = max(next_match['Date']).strftime('%d%m%Y')
-    DATANAME = DATANAME.replace('{date1}', fromdate).replace('{date2}', todate) + '.csv'
-    if os.path.exists(DATAPATH + '/' +DATANAME):
+    # The whole window collapses to ONE betting day by definition, so the
+    # file is named for that day rather than for a date span.
+    betting_day = date_utils.adjusted_date_series(next_match['Date'], next_match['Time']).min()
+    DATANAME = DATANAME.replace('{date}', betting_day.strftime('%Y-%m-%d')) + '.csv'
+    if os.path.exists(DATAPATH + '/' + DATANAME):
         print("CRITICAL: Data exists already! Forced exit app!")
         exit()
 
+    # Index the odds that came in alongside the fixtures, once, so each
+    # match is an O(1) dict hit instead of a scan.
+    odds_lookup = market_odds.build_lookup(next_match, team_utils.normalize)
+
+    # Calibration is read once and threaded through, rather than each
+    # calibrate_prob() call re-reading calibration.json.
+    calibration = model_config.load_calibration()
+
     print("Running for each league..", len(LEAGUES))
-    results_df = pd.DataFrame()
+    all_rows = []
     for key in LEAGUES:
-        
-        div_df = pd.DataFrame()
+
         divis = LEAGUES[key]
 
         if (divis in next_match['Div'].unique()) == False:
@@ -951,6 +1010,15 @@ if __name__ == '__main__':
             print(f"ERROR: Error during calculating parameters for {divis}..", e)   
             continue             
 
+        # Recent-form table is a property of the league, not of any one
+        # fixture -- compute it once here rather than once per match inside
+        # resultdef().
+        try:
+            form_df = calculate_win_and_goal_form(league_data)
+        except Exception as e:
+            print(f"WARNING: Could not compute form for {divis}..", e)
+            form_df = None
+
         print(f"Simulating matches for {divis}..")
         for match in next_match.loc[next_match['Div']==divis].index:
             ht = next_match['HomeTeam'][match]
@@ -962,17 +1030,23 @@ if __name__ == '__main__':
                 result = dixon_coles_simulate_match(params, ht, at)
             except Exception as e:
                 print(f"ERROR: Issue encountered during simulation of {ht, at}", e)
-                continue    
-            
-            res = resultdef(result, ht, at, divis, mdate, mtime, standings_df, league_data)
-            results_df = pd.concat([results_df, res])
-            div_df = pd.concat([div_df, res])
+                continue
 
-        
-        try:
-            print(f"{divis} completed. Appending data to csv..")
-            save_results_(div_df)
-        except Exception as e:
-            print(f"CRITICAL: Issue during saving of {divis}..", e)
+            odds_row = market_odds.lookup_odds(odds_lookup, ht, at, team_utils.normalize)
+            res = resultdef(result, ht, at, divis, mdate, mtime, standings_df, league_data,
+                            odds_row=odds_row, form_df=form_df, calibration=calibration)
+            if not res.empty:
+                all_rows.append(res)
 
-    print('Simulation completed..')
+        print(f"{divis} completed..")
+
+    # One concat and one write for the whole run. Concatenating inside the
+    # loop rebuilt the entire frame on every fixture, which is quadratic in
+    # the number of predictions.
+    results_df = pd.concat(all_rows, ignore_index=True) if all_rows else pd.DataFrame(columns=OUTPUT_COLUMNS)
+    try:
+        save_results_(results_df)
+    except Exception as e:
+        print("CRITICAL: Issue during saving..", e)
+
+    print(f'Simulation completed.. {len(results_df)} predictions for {DATANAME}')

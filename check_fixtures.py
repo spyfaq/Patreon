@@ -19,8 +19,8 @@ def get_upcoming_fixtures(url):
     try:
         df = pd.read_csv(url)
 
-        # Today's fetch window (today from the 08:00 cutoff onward, plus
-        # tomorrow up to 08:00 -- see date_utils.py). Previously matched
+        # Today's fetch window (today from the 09:00 cutoff onward, plus
+        # tomorrow up to 09:00 -- see date_utils.py). Previously matched
         # tomorrow's calendar date only and ignored the Time column
         # entirely, so a run on day X reported nothing found unless day
         # X+1 already had fixtures listed, even though day X's own

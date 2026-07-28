@@ -40,11 +40,17 @@ import numpy as np
 import majorleague_predictions as mlp
 import football_data_org_client as fdo
 import date_utils
+import market_odds
+import model_config
+import odds_client
+import team_utils
 
 COMPETITIONS = fdo.COMPETITIONS
 
 DATAPATH = 'predictions_data/'
-DATANAME = 'my_prediction_international_data_{date1}_{date2}'
+# One file per run, named for the single betting day it covers -- see
+# majorleague_predictions.py.
+DATANAME = 'international_prediction_{date}'
 
 HISTORY_SEASONS_BACK = 4  # how many prior seasons to try pulling for model fitting
 MIN_HISTORY_MATCHES = 20  # below this, Dixon-Coles fitting isn't meaningful
@@ -55,8 +61,8 @@ def fetch_historical_matches(code, seasons_back=HISTORY_SEASONS_BACK):
 
 
 def fetch_today_window_matches(code):
-    """Matches within today's fetch window (today from the 08:00 cutoff
-    onward, plus tomorrow up to 08:00 -- see date_utils.py). Previously
+    """Matches within today's fetch window (today from the 09:00 cutoff
+    onward, plus tomorrow up to 09:00 -- see date_utils.py). Previously
     fetched only tomorrow's exact calendar date, which excluded today's
     own matches entirely and included all of tomorrow's regardless of
     kickoff time. One ranged request covers both calendar days --
@@ -144,7 +150,7 @@ def patch_mlp_internals(hist_df, competition_code):
     mlp.historyfunc = _bound_historyfunc
 
 
-def run_competition(name, code):
+def run_competition(name, code, odds_lookup=None, calibration=None):
     print(f"Checking upcoming fixtures for {name} ({code})..")
     next_match = fetch_today_window_matches(code)
     if next_match.empty:
@@ -174,7 +180,14 @@ def run_competition(name, code):
 
     patch_mlp_internals(hist_df, code)
 
-    div_df = pd.DataFrame()
+    # Whole-competition computation -- once, not once per fixture.
+    try:
+        form_df = mlp.calculate_win_and_goal_form(hist_df)
+    except Exception as e:
+        print(f"WARNING: Could not compute form for {name}..", e)
+        form_df = None
+
+    frames = []
     for _, row in next_match.iterrows():
         ht, at = row['HomeTeam'], row['AwayTeam']
         try:
@@ -183,26 +196,45 @@ def run_competition(name, code):
             print(f"ERROR: Issue simulating {ht} vs {at} ({name})", e)
             continue
 
-        res = mlp.resultdef(result, ht, at, code, row['Date'], row['Time'], standings_df, hist_df)
-        div_df = pd.concat([div_df, res])
+        odds_row = market_odds.lookup_odds(odds_lookup, ht, at, team_utils.normalize)
+        res = mlp.resultdef(result, ht, at, code, row['Date'], row['Time'], standings_df, hist_df,
+                            odds_row=odds_row, form_df=form_df, calibration=calibration)
+        if not res.empty:
+            frames.append(res)
 
-    return div_df
+    return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
 
 
 def main():
-    results_df = pd.DataFrame()
+    # football-data.co.uk has no international odds at all, so unlike the
+    # domestic scripts (where prices ride along with the fixture file) these
+    # come from The Odds API. A failure here is non-fatal: predictions still
+    # export, just unpriced.
+    try:
+        odds_df = odds_client.fetch_all_international_odds()
+    except Exception as e:
+        print("WARNING: Could not fetch international odds.. exporting unpriced.", e)
+        odds_df = market_odds.empty_odds_frame()
+    odds_lookup = market_odds.build_lookup(odds_df, team_utils.normalize)
+    print(f"International odds available for {len(odds_lookup)} fixtures.")
+
+    calibration = model_config.load_calibration()
+
+    frames = []
     for name, code in COMPETITIONS.items():
         try:
-            res = run_competition(name, code)
-            results_df = pd.concat([results_df, res])
+            res = run_competition(name, code, odds_lookup=odds_lookup, calibration=calibration)
+            if not res.empty:
+                frames.append(res)
         except Exception as e:
             print(f"ERROR: Unhandled error processing {name} ({code})..", e)
             continue
 
-    if results_df.empty:
+    if not frames:
         print("No international predictions generated today.")
         return
 
+    results_df = pd.concat(frames, ignore_index=True)
     print(f"Saving {len(results_df)} international prediction rows..")
     save_results_(results_df)
 
@@ -210,8 +242,10 @@ def main():
 if __name__ == '__main__':
     os.chdir(os.path.dirname(__file__) or '.')
 
-    today_str = datetime.date.today().strftime('%d%m%Y')
-    DATANAME = DATANAME.replace('{date1}', today_str).replace('{date2}', today_str) + '.csv'
+    # The fetch window is anchored on today, so the betting day it covers
+    # is today by construction -- no need to inspect the fixtures first the
+    # way the domestic scripts do.
+    DATANAME = DATANAME.replace('{date}', datetime.date.today().strftime('%Y-%m-%d')) + '.csv'
 
     try:
         main()

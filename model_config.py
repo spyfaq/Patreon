@@ -72,12 +72,41 @@ DEFAULT_BLEND_MODEL = 0.7
 DEFAULT_BLEND_HIST = 0.3
 
 
+# Parsed-JSON cache, keyed by path -> (mtime, size, contents).
+#
+# Without this, every _load() call re-opened and re-parsed the file. That
+# is on the hot path: resultdef() calls get_record_floor() once per market
+# per fixture, and each of those resolves through get_base_rate() ->
+# load_calibration() -> _load(). A single run therefore did roughly
+# 11 x (number of fixtures) file reads to answer a question whose answer
+# never changes mid-run.
+#
+# Keyed on (mtime, size) rather than cached outright so a file rewritten
+# during the process (backtest_calibration.py writing calibration.json)
+# is still picked up rather than served stale.
+_CACHE = {}
+
+
 def _load(path):
     try:
-        with open(path, 'r') as f:
-            return json.load(f)
-    except Exception:
+        stat = os.stat(path)
+        stamp = (stat.st_mtime, stat.st_size)
+    except OSError:
+        _CACHE.pop(path, None)
         return {}
+
+    cached = _CACHE.get(path)
+    if cached is not None and cached[0] == stamp:
+        return cached[1]
+
+    try:
+        with open(path, 'r') as f:
+            data = json.load(f)
+    except Exception:
+        data = {}
+
+    _CACHE[path] = (stamp, data)
+    return data
 
 
 def get_xi():

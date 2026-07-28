@@ -6,13 +6,13 @@ date_utils.py
 Shared "which day's batch does this match belong to" logic, used both to
 decide what to FETCH for today's run and to LABEL matches once fetched.
 
-The betting day runs from 08:00 to 08:00, not midnight to midnight: a
+The betting day runs from 09:00 to 09:00, not midnight to midnight: a
 match kicking off at 02:00 (e.g. a late US kickoff, evening local time)
 is still part of the previous day's card, not the next one. Originally
 implemented ad-hoc in predictions_tier.py only, as a post-fetch label
 (commit 65130b7, "Shift early-morning matches ... to previous day", cutoff
-initially 06:00 in the comment though the code actually used 08:00;
-08:00 is now confirmed as the intended cutoff everywhere).
+initially 06:00 in the comment though the code actually used 08:00).
+The cutoff has since moved to 09:00 -- see EARLY_MORNING_CUTOFF_HOUR.
 
 That label-only fix was incomplete: every fetch script (majorleague/
 minorleague/international_predictions.py, check_fixtures.py) pulled a
@@ -23,9 +23,9 @@ day X+1's matches after 08:00 (the bulk of a normal day) stayed labeled
 day X+1 instead of day X. The result: a run on day X produced output
 mostly dated day X+1, not day X.
 
-Both sides now use the same 08:00 cutoff and live here:
+Both sides now use the same 09:00 cutoff and live here:
   - fetch_window() / in_fetch_window(): what a script should PULL for
-    today's run -- day X from 08:00 onward, plus day X+1 up to 08:00.
+    today's run -- day X from 09:00 onward, plus day X+1 up to 09:00.
   - adjusted_date_series(): which day's batch an ALREADY-FETCHED row
     belongs to -- used for grouping/labeling/filenames.
 Every script that needs either answer (predictions_tier.py,
@@ -39,7 +39,12 @@ import pandas as pd
 # The betting day starts at this UTC hour. Matches before it belong to
 # the PREVIOUS calendar day's batch; matches at or after it belong to
 # their own calendar day.
-EARLY_MORNING_CUTOFF_HOUR = 8
+#
+# 09:00 is chosen to sit just ahead of the ~11:00 pipeline run: everything
+# from 09:00 today through 08:59 tomorrow is "today's card", so a late
+# 02:00 kickoff is captured by today's run while last night's 22:00 game
+# has already been settled by yesterday's.
+EARLY_MORNING_CUTOFF_HOUR = 9
 
 
 def _combine_date_time(date_series, time_series):

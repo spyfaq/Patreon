@@ -610,8 +610,8 @@ def _main_impl():
 
     # Bucket by the same AdjustedDate rule predictions_tier.py uses (see
     # date_utils.py) instead of stamping every output with date.today() --
-    # the pipeline's fetch scripts now pull a window (today from 08:00
-    # onward, plus tomorrow up to 08:00) that matches this exact labeling
+    # the pipeline's fetch scripts now pull a window (today from 09:00
+    # onward, plus tomorrow up to 09:00) that matches this exact labeling
     # rule, so a run's merged data should only ever resolve to ONE
     # AdjustedDate bucket. Still grouped rather than assumed single as a
     # defensive safety net (e.g. a source that hasn't adopted the fetch

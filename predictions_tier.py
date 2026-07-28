@@ -384,7 +384,7 @@ def main():
     .dt.time
     .fillna(datetime.time(0, 0))  # replace NaT with 00:00
 )
-    # Shift early-morning matches (before 08:00 UTC) to the previous day's
+    # Shift early-morning matches (before 09:00 UTC) to the previous day's
     # batch -- see date_utils.py. Previously computed inline here only;
     # now shared with best_bets_selector.py and post_from_dropbox.py so
     # all three agree on which day a given match belongs to.

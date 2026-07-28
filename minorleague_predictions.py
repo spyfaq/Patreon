@@ -8,6 +8,8 @@ from scipy.stats import poisson
 from scipy.optimize import minimize
 import model_config
 import date_utils
+import market_odds
+import team_utils
 from collections import defaultdict
 
 """
@@ -50,8 +52,17 @@ DIVISIONS = {
 Path to save  data
 """
 DATAPATH = 'predictions_data/'
-DATANAME = 'my_prediction_minor_data_{date1}_{date2}'
+# One file per run, named for the single betting day it covers -- see
+# majorleague_predictions.py.
+DATANAME = 'minor_prediction_{date}'
 PARAMSPATH = 'model_params/'
+
+# Exported columns, in order -- must match majorleague_predictions.py so
+# the three prediction files are directly comparable.
+OUTPUT_COLUMNS = ["Division", "Date", "Time", "HomeTeam", "AwayTeam",
+                  "Prediction", "Prediction %", "Odd", "Implied %", "Edge %",
+                  "History %", "HomeTeam Stats", "AwayTeam Stats",
+                  "HomeForm", "AwayForm"]
 
 warnings.filterwarnings('ignore')
 
@@ -329,7 +340,8 @@ def solve_parameters_decay(dataset, xi=None, debug=False, init_vals=None, option
     param_names = ["attack_" + team for team in teams] + ["defence_" + team for team in teams] + ['rho', 'home_adv']
     return dict(zip(param_names, x))
 
-def resultdef(result, ht, at, divis, mdata, mtime, standings, old_df, lgdata, THRESH = None):
+def resultdef(result, ht, at, divis, mdata, mtime, standings, old_df, lgdata, THRESH = None,
+              odds_row=None, form_df=None, calibration=None):
     # THRESH is now per-market rather than one flat number (pass an explicit
     # value to override for every market). See majorleague_predictions.py
     # for the full rationale: a flat 0.5 meant something different depending
@@ -378,46 +390,27 @@ def resultdef(result, ht, at, divis, mdata, mtime, standings, old_df, lgdata, TH
     # Bet builder: exact joint probabilities for every {1,X,2} x goal-market
     # combo, computed directly from the score grid rather than assuming
     # independence (see majorleague_predictions.py for the full rationale).
-    side_masks = {'1': gi > gj, 'X': gi == gj, '2': gi < gj}
-    goal_masks = {
-        'O1_5': total_goals > 1, 'O2_5': total_goals > 2, 'O3_5': total_goals > 3,
-        'GG': (gi >= 1) & (gj >= 1),
-        'hO1_5': gi >= 2, 'hO2_5': gi >= 3,
-        'aO1_5': gj >= 2, 'aO2_5': gj >= 3,
-    }
-    combo_dict = {}
-    for side_name, side_mask in side_masks.items():
-        for goal_name, goal_mask in goal_masks.items():
-            combo_dict[f'{side_name}+{goal_name}'] = result[side_mask & goal_mask].sum()
+    outcome = pd.DataFrame(columns=OUTPUT_COLUMNS)
 
-    outcome = pd.DataFrame(columns=["Division", "Date", "Time", "HomeTeam", "AwayTeam", "Prediction", "Prediction %", 
-                             "History %", "HomeTeam Stats", "AwayTeam Stats", "HomeForm", "AwayForm"])
-    
-    print("Calculating class history", f'{ht}-{at}')
     hist_dict = historyfunc(path, ht, at, old_df)
     rows = []
 
-    # Same rationale as majorleague_predictions.py: combos are intersections
-    # so they're inherently lower-probability than either leg alone; this is
-    # just a sanity floor, real ranking happens in best_bets_selector.py.
-    COMBO_THRESH = 0.10
+    for res in dict.keys():
+        # Calibrated rather than raw -- see majorleague_predictions.py.
+        val = model_config.calibrate_prob(float(dict[res]), res, calibration)
 
-    for res in list(dict.keys()) + list(combo_dict.keys()):
-        is_combo = res in combo_dict
-        val = combo_dict[res] if is_combo else dict[res]
-        if is_combo:
-            this_thresh = COMBO_THRESH
-        elif THRESH is not None:
-            this_thresh = THRESH          # explicit caller override
-        else:
-            this_thresh = model_config.get_record_floor(res)
+        this_thresh = THRESH if THRESH is not None else model_config.get_record_floor(res)
         if val > this_thresh:
             try:
                 hist_perc = hist_dict[res]
             except:
-                if not is_combo:
-                    print(f"WARNING: No history data for {ht}-{at}")
+                print(f"WARNING: No history data for {ht}-{at}")
                 hist_perc = '-'
+
+            # Bookmaker price for this market; blank when unpriced.
+            odd = market_odds.odd_for(res, odds_row)
+            implied = market_odds.implied_prob(odd)
+            model_edge = market_odds.edge(val, odd)
 
             # calc_standings() only creates a row for a team that has
             # appeared in an actual PLAYED result -- a promoted team, even
@@ -438,13 +431,20 @@ def resultdef(result, ht, at, divis, mdata, mtime, standings, old_df, lgdata, TH
             homestats = home_rows.iloc[0] if not home_rows.empty else NO_STATS
             awaystats = away_rows.iloc[0] if not away_rows.empty else NO_STATS
 
-            rows.append([divis, mdata, mtime, ht, at, res, val.round(2), hist_perc, homestats, awaystats, '', ''])
+            # round(), not val.round(2): val is a plain float after
+            # calibrate_prob. 4dp so Edge % isn't quantized into uselessly
+            # coarse steps.
+            rows.append([divis, mdata, mtime, ht, at, res, round(val, 4),
+                         odd, implied, model_edge,
+                         hist_perc, homestats, awaystats, '', ''])
 
     if rows:
-        outcome = pd.DataFrame(rows, columns=["Division", "Date", "Time", "HomeTeam", "AwayTeam", "Prediction", "Prediction %",
-                                 "History %", "HomeTeam Stats", "AwayTeam Stats", "HomeForm", "AwayForm"])
+        outcome = pd.DataFrame(rows, columns=OUTPUT_COLUMNS)
 
-        form_df = calculate_win_and_goal_form(lgdata)
+        # Computed once per league by the caller -- see
+        # majorleague_predictions.py.
+        if form_df is None:
+            form_df = calculate_win_and_goal_form(lgdata)
         # LEFT joins, not inner. An inner join silently DROPS any fixture
         # whose team has no recent-form row -- which is exactly what a
         # newly promoted team looks like, since form is computed from this
@@ -463,13 +463,14 @@ def resultdef(result, ht, at, divis, mdata, mtime, standings, old_df, lgdata, TH
         merged = merged.merge(form_df, left_on='AwayTeam', right_on='team',
                                suffixes=('_home', '_away'), how='left')
 
-        # Function to select correct form based on prediction type
+        # Function to select correct form based on prediction type. Combos
+        # are no longer emitted, so a prediction code is always a single
+        # market.
         def pick_form(row):
             pred = row['Prediction']
-            goal_leg = pred.split('+')[1] if '+' in pred else pred
             if pred in ['1', '2', 'X']:
                 return pd.Series([row['HomeWinForm_home'], row['AwayWinForm_away']])
-            elif goal_leg in ['O1_5', 'O2_5', 'O3_5', 'GG', 'hO1_5', 'hO2_5', 'aO1_5', 'aO2_5']:
+            elif pred in ['O1_5', 'O2_5', 'O3_5', 'GG', 'hO1_5', 'hO2_5', 'aO1_5', 'aO2_5']:
                 return pd.Series([row['HomeGoalsForm_home'], row['AwayGoalsForm_away']])
             else:
                 return pd.Series([None, None])
@@ -486,8 +487,7 @@ def resultdef(result, ht, at, divis, mdata, mtime, standings, old_df, lgdata, TH
             merged[['HomeForm', 'AwayForm']] = merged.apply(pick_form, axis=1)
 
         # Final result
-        outcome = merged[["Division", "Date", "Time", "HomeTeam", "AwayTeam", "Prediction", "Prediction %", 
-                         "History %", "HomeTeam Stats", "AwayTeam Stats", "HomeForm", "AwayForm"]]
+        outcome = merged[OUTPUT_COLUMNS]
 
     return(outcome)
 
@@ -530,22 +530,46 @@ def download_league_data(url):
     return (league_data, old_league)
 
 def upcoming(uri):
-    next_match = pd.read_csv(uri, encoding='utf-8-sig')
-    next_match = next_match[['Date','Time', 'Country', 'Home','Away']]
-    next_match = next_match.rename(columns={'Country': 'Div', 'Home': 'HomeTeam', 'Away': 'AwayTeam'})    
-    next_match['Date'] = pd.to_datetime(next_match['Date'], format='%d/%m/%Y')
-    return next_match
+    """Today's fixture list, WITH the bookmaker odds columns that ship in
+    the same file -- see majorleague_predictions.upcoming for why these are
+    kept rather than re-fetched later.
 
-def save_results_(df):
+    new_league_fixtures.csv is less consistent than the main file about
+    carrying odds at all, so every odds column is optional here and a
+    missing one degrades to a blank price."""
+    next_match = pd.read_csv(uri, encoding='utf-8-sig')
+    next_match = next_match.rename(columns={'Country': 'Div', 'Home': 'HomeTeam', 'Away': 'AwayTeam'})
+
+    base_cols = ['Date', 'Time', 'Div', 'HomeTeam', 'AwayTeam']
+    odds_cols = team_utils.find_columns(next_match.columns,
+                                        ['AvgH', 'AvgD', 'AvgA', 'Avg>2.5', 'Avg<2.5'])
+    missing = [c for c in base_cols if c not in next_match.columns]
+    if missing:
+        raise KeyError(f"new_league_fixtures.csv missing required columns: {missing}")
+    if not odds_cols:
+        print("WARNING: new_league_fixtures.csv carries no odds columns; predictions will export unpriced.")
+
+    next_match = next_match[base_cols + odds_cols]
+    next_match = next_match.rename(columns={c: 'AvgOver25' for c in odds_cols
+                                            if c.strip().lower() == 'avg>2.5'})
+    next_match = next_match.rename(columns={c: 'AvgUnder25' for c in odds_cols
+                                            if c.strip().lower() == 'avg<2.5'})
+    next_match['Date'] = pd.to_datetime(next_match['Date'], format='%d/%m/%Y')
+    return market_odds.add_derived_columns(next_match)
+
+def save_results_(df, filename=None):
+    """Write the run's predictions in one pass -- see
+    majorleague_predictions.save_results_ for why this is no longer called
+    per division."""
+    if df is None or df.empty:
+        print("Nothing to save..")
+        return
+
     if not os.path.exists(DATAPATH):
         os.makedirs(DATAPATH)
-    filename = DATAPATH + '/' + DATANAME
+    filename = filename or (DATAPATH + '/' + DATANAME)
 
-    if os.path.exists(filename):
-        temp = pd.read_csv(filename)
-        towrite = pd.concat([temp,df])
-    else:
-        towrite = df
+    towrite = df.copy()
 
     try:
         # Combine Date and Time into a single datetime in UTC
@@ -557,17 +581,19 @@ def save_results_(df):
         # Convert from UTC to Greece time (Athens)
         dt_gr = dt_utc.dt.tz_convert('Europe/Athens')
 
-        # Update your DataFrame
-        towrite['Date'] = dt_gr.dt.strftime('%d-%m-%Y') + ', ' + dt_gr.dt.day_name(locale='en_US')
-        towrite['Time'] = dt_gr.dt.strftime('%H:%M')  
+        # Update your DataFrame. day_name() takes no locale argument on
+        # purpose -- see majorleague_predictions.save_results_ for why
+        # locale='en_US' silently disabled this whole block.
+        towrite['Date'] = dt_gr.dt.strftime('%d-%m-%Y') + ', ' + dt_gr.dt.day_name()
+        towrite['Time'] = dt_gr.dt.strftime('%H:%M')
 
         towrite['Date_temp'] = pd.to_datetime(towrite['Date'], dayfirst=True)
         towrite['Time_temp'] = pd.to_datetime(towrite['Time'], format="%H:%M").dt.time
         towrite['Datetime_temp'] = towrite.apply(lambda x: pd.Timestamp.combine(x['Date_temp'], x['Time_temp']), axis=1)
         towrite.sort_values(by=['Datetime_temp', 'HomeTeam'], inplace=True)
         towrite.drop(columns=['Date_temp', 'Time_temp', 'Datetime_temp'],inplace=True)
-    except:
-        print(f"ERROR: Issue converting date.. Saving without sorting..")
+    except Exception as e:
+        print(f"ERROR: Issue converting date.. Saving without sorting..", e)
         
     towrite.to_csv(filename, index=False)
 
@@ -847,25 +873,28 @@ if __name__ == '__main__':
     next_match = upcoming('https://www.football-data.co.uk/new_league_fixtures.csv')
 
     # Fetch window: see majorleague_predictions.py for the full rationale
-    # (today from the 08:00 cutoff onward, plus tomorrow up to 08:00).
+    # (today from the 09:00 cutoff onward, plus tomorrow up to 09:00).
     next_match = next_match[date_utils.in_fetch_window(next_match['Date'], next_match['Time'])]
 
     if next_match.empty:
         print("No fixtures in today's window.. Bye")
         sys.exit()
 
-    fromdate = min(next_match['Date']).strftime('%d%m%Y')
-    todate = max(next_match['Date']).strftime('%d%m%Y')
-    DATANAME = DATANAME.replace('{date1}', fromdate).replace('{date2}', todate) + '.csv'
-    if os.path.exists(DATAPATH + '/' +DATANAME):
+    # The window collapses to ONE betting day, so name the file for it.
+    betting_day = date_utils.adjusted_date_series(next_match['Date'], next_match['Time']).min()
+    DATANAME = DATANAME.replace('{date}', betting_day.strftime('%Y-%m-%d')) + '.csv'
+    if os.path.exists(DATAPATH + '/' + DATANAME):
         print("CRITICAL: Data exists already! Forced exit app!")
         exit()
 
+    # Index the odds that arrived with the fixtures, once.
+    odds_lookup = market_odds.build_lookup(next_match, team_utils.normalize)
+    calibration = model_config.load_calibration()
+
     print("Running for each league..", len(LEAGUES))
-    results_df = pd.DataFrame()
+    all_rows = []
     for key in LEAGUES:
-        
-        div_df = pd.DataFrame()
+
         divi = LEAGUES[key]
         divis = key
 
@@ -893,6 +922,13 @@ if __name__ == '__main__':
             print(f"ERROR: Simulating problem.. skipping {divis}.. ", e)
             continue
 
+        # Whole-league computation -- once here, not once per fixture.
+        try:
+            form_df = calculate_win_and_goal_form(league_data)
+        except Exception as e:
+            print(f"WARNING: Could not compute form for {divis}..", e)
+            form_df = None
+
         print(f"Simulating matches for {divis}..")
         for match in next_match.loc[next_match['Div']==divis].index:
             ht = next_match['HomeTeam'][match]
@@ -906,14 +942,20 @@ if __name__ == '__main__':
                 print(f"ERROR: Issue encountered during simulation of {ht, at}", e)
                 continue
 
-            res = resultdef(result, ht, at, divis, mdate, mtime, standings_df, old_data, league_data)
-            results_df = pd.concat([results_df, res])
-            div_df = pd.concat([div_df, res])
-        
-        try:
-            print(f"{divis} completed. Appending data to csv..")
-            save_results_(div_df)
-        except Exception as e:
-            print(f"CRITICAL: Issue during saving of {divis}..", e)
+            odds_row = market_odds.lookup_odds(odds_lookup, ht, at, team_utils.normalize)
+            res = resultdef(result, ht, at, divis, mdate, mtime, standings_df, old_data, league_data,
+                            odds_row=odds_row, form_df=form_df, calibration=calibration)
+            if not res.empty:
+                all_rows.append(res)
 
-    print('Simulation completed..')
+        print(f"{divis} completed..")
+
+    # One concat and one write for the whole run -- see
+    # majorleague_predictions.py.
+    results_df = pd.concat(all_rows, ignore_index=True) if all_rows else pd.DataFrame(columns=OUTPUT_COLUMNS)
+    try:
+        save_results_(results_df)
+    except Exception as e:
+        print("CRITICAL: Issue during saving..", e)
+
+    print(f'Simulation completed.. {len(results_df)} predictions for {DATANAME}')

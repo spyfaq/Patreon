@@ -44,7 +44,30 @@ INPUT_TEMPLATE = 'merged-prediction-{date}.csv'
 
 # ------------------------------------------------------------- free tier
 FREE_PICKS = 3
-FREE_MIN_ODD = 2.00
+
+# The free picks are drawn at random from the FREE_POOL highest-EDGE
+# qualifying picks.
+#
+# Why edge defines the pool rather than just ordering it: sampling
+# uniformly from a pool ignores that pool's order, so ranking a fixed set
+# of 10 by edge and then drawing 3 at random would give the same 3 as
+# ranking them any other way. For edge to actually influence the outcome
+# it has to decide WHICH picks are in the pool.
+#
+# Why edge rather than probability (how the VIP list is ranked): the VIP
+# ranking is by model probability, and high probability means short odds
+# almost by definition. Drawing the free list from it produced a shop
+# window full of 1.2-1.4 near-certainties -- unimpressive to read, and
+# barely profitable to back. Ranking the pool by edge spreads the odds
+# naturally without needing a hard price floor, and showcases the thing
+# the product actually sells: finding value the market missed.
+#
+# If you would rather edge picked the three outright, replace the sample()
+# in select_free() with .head(FREE_PICKS) -- that drops the randomness.
+FREE_POOL = 10
+
+# Fixed so a re-run on the same day republishes the same free list.
+FREE_SEED = 42
 
 # ------------------------------------------------------------- VIP tier
 VIP_PICKS = 10
@@ -451,16 +474,19 @@ def _write(path, content):
 
 
 def write_public(public, date_str):
-    """Free tier: 3 picks priced over 2.00, drawn at random from the
-    qualifying pool. Random rather than best-first on purpose -- the free
-    list is a shop window, and always giving away the strongest picks
-    leaves nothing behind the paywall."""
+    """Free tier: 3 picks drawn at random from the highest-edge qualifying
+    picks. Random rather than best-first on purpose -- the free list is a
+    shop window, and always handing over the single strongest pick leaves
+    nothing behind the paywall."""
     txt = f"📊 <b>Free Picks — {date_str}</b>\n\n"
     if public.empty:
-        txt += f"No picks priced over {FREE_MIN_ODD:.2f} today.\n"
+        txt += "No picks qualified today.\n"
     else:
         for _, row in public.iterrows():
-            txt += f"• <b>{row['Match']}</b> → {row['Prediction']} @ {row['OddValue']:.2f}\n"
+            # An unpriced market (GG, team-goal) has no odd to show; print
+            # the pick without one rather than the literal 'nan'.
+            odd = f" @ {row['OddValue']:.2f}" if pd.notna(row['OddValue']) else ""
+            txt += f"• <b>{row['Match']}</b> → {row['Prediction']}{odd}\n"
     txt += ("\n📩 <a href='https://rebrand.ly/betprophet-m'>Join BetProphet.AI VIP now</a> "
             "for today's premium picks before kick-off!\n"
             "💎Just €8/month — one winning bet covers your subscription! ✅")
@@ -548,12 +574,14 @@ def prepare(df):
     df.rename(columns={'History %': 'History H2H'}, inplace=True)
     df['HistValue'] = df['History H2H'].apply(parse_hist)
 
-    # Explicit format first (times are written as HH:MM), falling back to
-    # free parsing for anything else. Without the format pandas emits a
-    # "could not infer format" warning on every row, which buries the
-    # script's real output in CI logs.
+    # Explicit format first (times are written as HH:MM). The free-parse
+    # fallback runs ONLY if something failed that format -- calling it
+    # unconditionally makes pandas emit a "could not infer format" warning
+    # on every run even when nothing needed it, burying the script's real
+    # output in CI logs.
     times = pd.to_datetime(df['Time'], format='%H:%M', errors='coerce')
-    times = times.fillna(pd.to_datetime(df['Time'], errors='coerce'))
+    if times.isna().any():
+        times = times.fillna(pd.to_datetime(df['Time'], errors='coerce'))
     df['Time'] = times.dt.time.fillna(datetime.time(0, 0))
     df['AdjustedDate'] = date_utils.adjusted_date_series(df['Date'], df['Time'])
 
@@ -609,6 +637,28 @@ def qualifying(df):
     return picks
 
 
+def select_free(vip_all):
+    """FREE_PICKS drawn at random from the FREE_POOL highest-edge picks.
+
+    Unpriced markets (GG, the team-goal markets) are excluded from the
+    pool because they have no edge to rank on -- but if NOTHING is priced
+    today, the pool falls back to the top of the VIP list so the free post
+    is never silently empty.
+    """
+    if vip_all.empty:
+        return vip_all
+
+    pool = vip_all[vip_all['EdgeValue'].notna()]
+    if pool.empty:
+        print('No priced picks today; free list falls back to the top VIP picks.')
+        pool = vip_all
+    else:
+        pool = pool.sort_values('EdgeValue', ascending=False)
+
+    pool = pool.head(FREE_POOL)
+    return pool.sample(n=min(FREE_PICKS, len(pool)), random_state=FREE_SEED)
+
+
 def select_best_bets(df):
     """3-6 picks, one per match, ranked by the edge-dominant composite."""
     pool = df[df['EdgeValue'].notna() & df['OddValue'].notna()].copy()
@@ -645,12 +695,10 @@ def main(reference=None):
         picks = qualifying(df_date)
         vip_all = dedup_one_per_match(picks, limit=None)
 
-        # ---- free tier: 3 at random from those priced over 2.00
-        eligible = vip_all[vip_all['OddValue'] > FREE_MIN_ODD]
-        public = eligible.sample(n=min(FREE_PICKS, len(eligible)), random_state=42) \
-            if not eligible.empty else eligible
-        print(f'Free: {len(public)} pick(s) over {FREE_MIN_ODD:.2f} '
-              f'(from {len(eligible)} eligible).')
+        # ---- free tier: 3 at random from the highest-edge picks
+        public = select_free(vip_all)
+        print(f'Free: {len(public)} pick(s) drawn from the top {FREE_POOL} by edge '
+              f'(of {len(vip_all)} qualifying).')
         write_public(public, date_str)
 
         # ---- VIP: top 10 with reasoning, plus every qualifying prediction

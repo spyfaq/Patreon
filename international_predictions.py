@@ -19,11 +19,11 @@ Reuses the core Dixon-Coles modeling/output logic from
 majorleague_predictions.py (dixon_coles_simulate_match, solve_parameters_decay,
 resultdef, calculate_win_and_goal_form, calc_standings, load/save_cached_params)
 instead of duplicating ~500 lines of proven, tested code (including the bet
-builder combo math). resultdef() internally references a few module-level
-globals (logger, path, historyfunc) that only get set when
+builder combo math). resultdef() internally references a couple of
+module-level globals (path, historyfunc) that only get set when
 majorleague_predictions.py runs as __main__ -- since we're importing it
 instead, those are patched below to route through this script's own
-logger/history logic. This is intentional, not a workaround for a bug --
+history logic. This is intentional, not a workaround for a bug --
 see the "Patch mlp's internals" section below for exactly what and why.
 
 The football-data.org API access itself (auth, retries, rate limiting,
@@ -33,7 +33,6 @@ matches identically.
 """
 
 import os
-import sys
 import datetime
 import pandas as pd
 import numpy as np
@@ -41,21 +40,18 @@ import numpy as np
 import majorleague_predictions as mlp
 import football_data_org_client as fdo
 import date_utils
-from jsonlogger_class import JSONLogger
 
 COMPETITIONS = fdo.COMPETITIONS
 
 DATAPATH = 'predictions_data/'
 DATANAME = 'my_prediction_international_data_{date1}_{date2}'
-LOGPATH = 'logs/simu/'
-LOGNAME = '{date}_international_logs'
 
 HISTORY_SEASONS_BACK = 4  # how many prior seasons to try pulling for model fitting
 MIN_HISTORY_MATCHES = 20  # below this, Dixon-Coles fitting isn't meaningful
 
 
 def fetch_historical_matches(code, seasons_back=HISTORY_SEASONS_BACK):
-    return fdo.fetch_historical_matches(code, seasons_back=seasons_back, logger=logger)
+    return fdo.fetch_historical_matches(code, seasons_back=seasons_back)
 
 
 def fetch_today_window_matches(code):
@@ -70,7 +66,7 @@ def fetch_today_window_matches(code):
     today = datetime.date.today()
     tomorrow = today + datetime.timedelta(days=1)
     matches = fdo.fetch_matches(code, date_from=today.isoformat(), date_to=tomorrow.isoformat(),
-                                 status="SCHEDULED", logger=logger)
+                                 status="SCHEDULED")
     df = fdo.matches_to_df(matches)
     if df.empty:
         return df
@@ -133,14 +129,13 @@ def save_results_(df):
 
 
 def patch_mlp_internals(hist_df, competition_code):
-    """resultdef() reaches for `logger`, `path`, and `historyfunc` as
-    module-level globals in majorleague_predictions.py's own namespace --
-    those only get set there when that file runs as __main__. Since we're
-    importing it instead, point them at our own equivalents so resultdef's
-    internal logging/history calls work correctly without duplicating its
-    ~130 lines (including the bet-builder combo math) here.
+    """resultdef() reaches for `path` and `historyfunc` as module-level
+    globals in majorleague_predictions.py's own namespace -- those only get
+    set there when that file runs as __main__. Since we're importing it
+    instead, point them at our own equivalents so resultdef's internal
+    history calls work correctly without duplicating its ~130 lines
+    (including the bet-builder combo math) here.
     """
-    mlp.logger = logger
     mlp.path = competition_code  # placeholder value; our historyfunc ignores it
 
     def _bound_historyfunc(path, hw, aw):
@@ -150,22 +145,22 @@ def patch_mlp_internals(hist_df, competition_code):
 
 
 def run_competition(name, code):
-    logger.log('info', f"Checking upcoming fixtures for {name} ({code})..")
+    print(f"Checking upcoming fixtures for {name} ({code})..")
     next_match = fetch_today_window_matches(code)
     if next_match.empty:
-        logger.log('info', f"No fixtures in today's window for {name}.. skipping")
+        print(f"No fixtures in today's window for {name}.. skipping")
         return pd.DataFrame()
 
-    logger.log('info', f"Fetching historical results for {name}..")
+    print(f"Fetching historical results for {name}..")
     hist_df = fetch_historical_matches(code)
     if len(hist_df) < MIN_HISTORY_MATCHES:
-        logger.log('warning', f"Not enough history for {name} ({len(hist_df)} matches).. skipping")
+        print(f"WARNING: Not enough history for {name} ({len(hist_df)} matches).. skipping")
         return pd.DataFrame()
 
     try:
         standings_df = mlp.calc_standings(hist_df)
     except Exception as e:
-        logger.log('error', f"Error calculating standings for {name}..", info=str(e))
+        print(f"ERROR: Error calculating standings for {name}..", e)
         return pd.DataFrame()
 
     try:
@@ -174,7 +169,7 @@ def run_competition(name, code):
         params = mlp.solve_parameters_decay(hist_df, init_vals=warm_start)
         mlp.save_cached_params(code, params)
     except Exception as e:
-        logger.log('error', f"Error fitting parameters for {name}..", info=str(e))
+        print(f"ERROR: Error fitting parameters for {name}..", e)
         return pd.DataFrame()
 
     patch_mlp_internals(hist_df, code)
@@ -185,7 +180,7 @@ def run_competition(name, code):
         try:
             result = mlp.dixon_coles_simulate_match(params, ht, at)
         except Exception as e:
-            logger.log('error', f"Issue simulating {ht} vs {at} ({name})", info=str(e))
+            print(f"ERROR: Issue simulating {ht} vs {at} ({name})", e)
             continue
 
         res = mlp.resultdef(result, ht, at, code, row['Date'], row['Time'], standings_df, hist_df)
@@ -201,29 +196,19 @@ def main():
             res = run_competition(name, code)
             results_df = pd.concat([results_df, res])
         except Exception as e:
-            logger.log('error', f"Unhandled error processing {name} ({code})..", info=str(e))
+            print(f"ERROR: Unhandled error processing {name} ({code})..", e)
             continue
 
     if results_df.empty:
-        logger.log('info', "No international predictions generated today.")
+        print("No international predictions generated today.")
         return
 
-    logger.log('info', f"Saving {len(results_df)} international prediction rows..")
+    print(f"Saving {len(results_df)} international prediction rows..")
     save_results_(results_df)
 
 
 if __name__ == '__main__':
     os.chdir(os.path.dirname(__file__) or '.')
-
-    datesave = datetime.date.today().strftime('%Y%m%d')
-    LOGNAME = LOGNAME.replace('{date}', datesave) + '.json'
-
-    if os.path.exists(LOGPATH + '/' + LOGNAME):
-        logger = JSONLogger(log_file=LOGNAME, log_dir=LOGPATH)
-        logger.log('critical', "Tried to rerun! Forced exit app!")
-        sys.exit()
-    else:
-        logger = JSONLogger(log_file=LOGNAME, log_dir=LOGPATH)
 
     today_str = datetime.date.today().strftime('%d%m%Y')
     DATANAME = DATANAME.replace('{date1}', today_str).replace('{date2}', today_str) + '.csv'
@@ -231,5 +216,5 @@ if __name__ == '__main__':
     try:
         main()
     except Exception as e:
-        logger.log('critical', "Unhandled exception in international_predictions.py", info=str(e))
+        print("CRITICAL: Unhandled exception in international_predictions.py", e)
         raise

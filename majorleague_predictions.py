@@ -3,10 +3,9 @@
 
 import pandas as pd
 import numpy as np
-import  sys, os, datetime, requests, warnings, json
+import  sys, os, requests, warnings, json
 from scipy.stats import poisson
 from scipy.optimize import minimize
-from jsonlogger_class import JSONLogger
 import model_config
 import date_utils
 from collections import defaultdict
@@ -61,8 +60,6 @@ Path to save  data
 DATAPATH = 'predictions_data/'
 DATANAME = 'my_prediction_major_data_{date1}_{date2}'
 PARAMSPATH = 'model_params/'
-LOGPATH = 'logs/simu/'
-LOGNAME = '{date}_my_prediction_major_logs'
 
 warnings.filterwarnings('ignore')
 
@@ -185,10 +182,7 @@ def dixon_coles_simulate_match(params_dict, homeTeam, awayTeam, max_goals=5):
 
     total = output_matrix.sum()
     if total <= 0 or not np.isfinite(total):
-        try:
-            logger.log('error', f"Non-positive total probability for {homeTeam}-{awayTeam}", info=str(total))
-        except Exception:
-            pass
+        print(f"ERROR: Non-positive total probability for {homeTeam}-{awayTeam}", total)
         sz = output_matrix.shape[0]
         return np.ones((sz, sz)) / (sz * sz)
 
@@ -448,7 +442,7 @@ def resultdef(result, ht, at, divis, mdata, mtime, standings, lgdata, THRESH = N
             this_thresh = model_config.get_record_floor(res)
         if val > this_thresh:
             if hist_dict is None:
-                logger.log('info', "Calculating class history", info=str(f'{ht}-{at}'))
+                print("Calculating class history", f'{ht}-{at}')
                 hist_dict = historyfunc(path, ht, at)
             try:
                 hist_perc = hist_dict[res]
@@ -457,7 +451,7 @@ def resultdef(result, ht, at, divis, mdata, mtime, standings, lgdata, THRESH = N
                 # knows single-market codes) -- this is expected, not a
                 # missing-data warning, so log it quietly for combos.
                 if not is_combo:
-                    logger.log('warning', f"No history data for {ht}-{at}",)
+                    print(f"WARNING: No history data for {ht}-{at}")
                 hist_perc = '-'
 
             # calc_standings() only creates a row for a team that has
@@ -554,7 +548,7 @@ def load_fixtures_rapidapi():
     url = "https://api-football-v1.p.rapidapi.com/v3/fixtures"
     rapidapi_key = os.environ.get("RAPIDAPI_KEY")
     if not rapidapi_key:
-        logger.log('error', "RAPIDAPI_KEY environment variable not set; cannot call RapidAPI fixtures endpoint.")
+        print("ERROR: RAPIDAPI_KEY environment variable not set; cannot call RapidAPI fixtures endpoint.")
         raise RuntimeError("RAPIDAPI_KEY environment variable not set")
 
     headers = {
@@ -617,7 +611,7 @@ def save_results_(df):
         towrite.sort_values(by=['Datetime_temp', 'HomeTeam'], inplace=True)
         towrite.drop(columns=['Date_temp', 'Time_temp', 'Datetime_temp'],inplace=True)
     except:
-        logger.log('error', f"Issue converting date.. Saving without sorting..")
+        print(f"ERROR: Issue converting date.. Saving without sorting..")
     towrite.to_csv(filename, index=False)
 
 def calculate_win_and_goal_form(df):
@@ -895,18 +889,7 @@ def calc_standings(results, season=None):
 if __name__ == '__main__':
     os.chdir(os.path.dirname(__file__))
 
-    datesave = datetime.date.today().strftime('%Y%m%d')
-    LOGNAME = LOGNAME.replace('{date}', datesave) + '.json'
-
-    if os.path.exists(LOGPATH + '/' +LOGNAME):
-        logger = JSONLogger(log_file=LOGNAME, log_dir=LOGPATH)
-        logger.log('critical', "Tried to rerun! Forced exit app!")
-        exit()
-    else:
-        logger = JSONLogger(log_file=LOGNAME, log_dir=LOGPATH)
-
-
-    logger.log('info', "Downloading schedule..")
+    print("Downloading schedule..")
     next_match = upcoming('https://www.football-data.co.uk/fixtures.csv')
     #next_match = load_fixtures_rapidapi()
 
@@ -919,18 +902,17 @@ if __name__ == '__main__':
     next_match = next_match[date_utils.in_fetch_window(next_match['Date'], next_match['Time'])]
 
     if next_match.empty:
-        logger.log('info', "No fixtures in today's window.. Bye")
+        print("No fixtures in today's window.. Bye")
         sys.exit()
 
     fromdate = min(next_match['Date']).strftime('%d%m%Y')
     todate = max(next_match['Date']).strftime('%d%m%Y')
     DATANAME = DATANAME.replace('{date1}', fromdate).replace('{date2}', todate) + '.csv'
     if os.path.exists(DATAPATH + '/' +DATANAME):
-        logger = JSONLogger(log_file=LOGNAME, log_dir=LOGPATH)
-        logger.log('critical', "Data exists already! Forced exit app!")
+        print("CRITICAL: Data exists already! Forced exit app!")
         exit()
 
-    logger.log('info', "Running for each league..", info=str(len(LEAGUES)))
+    print("Running for each league..", len(LEAGUES))
     results_df = pd.DataFrame()
     for key in LEAGUES:
         
@@ -938,38 +920,38 @@ if __name__ == '__main__':
         divis = LEAGUES[key]
 
         if (divis in next_match['Div'].unique()) == False:
-            logger.log('warning', f"No match to simulate for {divis}..")
+            print(f"WARNING: No match to simulate for {divis}..")
             continue
 
         prefix = "https://www.football-data.co.uk/"
         pre = F"mmz4281/{YEAR}/{divis}.csv"
         path = prefix + pre
-        logger.log('info', f"Downloading {divis} data..", info=str(path))
+        print(f"Downloading {divis} data..", path)
         try:
             league_data = download_league_data(path)
         except Exception as e:
-            logger.log('error', f"Error during downloading {divis} data..", info=str(e))
+            print(f"ERROR: Error during downloading {divis} data..", e)
             continue
 
-        logger.log('info', f"Calculating standings for {divis}..")
+        print(f"Calculating standings for {divis}..")
         Standings = {}
         try:
             standings_df = calc_standings(league_data)
         except Exception as e:
-            logger.log('error', f"Error during calculating standings for {divis}..", info=str(e))   
+            print(f"ERROR: Error during calculating standings for {divis}..", e)   
             continue         
 
-        logger.log('info', f"Calculating parameters for {divis}..")
+        print(f"Calculating parameters for {divis}..")
         try:
             teams_sorted = np.sort(league_data['HomeTeam'].unique())
             warm_start = load_cached_params(divis, teams_sorted)
             params = solve_parameters_decay(league_data, init_vals=warm_start)
             save_cached_params(divis, params)
         except Exception as e:
-            logger.log('error', f"Error during calculating parameters for {divis}..", info=str(e))   
+            print(f"ERROR: Error during calculating parameters for {divis}..", e)   
             continue             
 
-        logger.log('info', f"Simulating matches for {divis}..")
+        print(f"Simulating matches for {divis}..")
         for match in next_match.loc[next_match['Div']==divis].index:
             ht = next_match['HomeTeam'][match]
             at = next_match['AwayTeam'][match]
@@ -979,7 +961,7 @@ if __name__ == '__main__':
             try:
                 result = dixon_coles_simulate_match(params, ht, at)
             except Exception as e:
-                logger.log('error', f"Issue encountered during simulation of {ht, at}", info=str(e))
+                print(f"ERROR: Issue encountered during simulation of {ht, at}", e)
                 continue    
             
             res = resultdef(result, ht, at, divis, mdate, mtime, standings_df, league_data)
@@ -988,9 +970,9 @@ if __name__ == '__main__':
 
         
         try:
-            logger.log('info', f"{divis} completed. Appending data to csv..")
+            print(f"{divis} completed. Appending data to csv..")
             save_results_(div_df)
         except Exception as e:
-            logger.log('critical', f"Issue during saving of {divis}..", info=str(e))
+            print(f"CRITICAL: Issue during saving of {divis}..", e)
 
-    logger.log('info', 'Simulation completed..')
+    print('Simulation completed..')

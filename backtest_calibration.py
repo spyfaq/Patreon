@@ -34,15 +34,6 @@ from scipy.optimize import minimize
 
 import majorleague_predictions as mlp
 
-# The imported module only defines `logger` inside its own __main__ guard.
-# A couple of its functions log a rare numerical-safety warning; give it a
-# harmless no-op logger here so that path can't raise NameError on import.
-class _NullLogger:
-    def log(self, *args, **kwargs):
-        pass
-
-mlp.logger = _NullLogger()
-
 MIN_CALIBRATION_SAMPLES = 200  # below this a fitted shrink is noise, not signal
 
 DEFAULT_LEAGUES = {

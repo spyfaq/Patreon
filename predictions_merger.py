@@ -3,14 +3,11 @@
 
 import os, datetime, re
 import pandas as pd
-from jsonlogger_class import JSONLogger
 import team_utils
 import odds_client
 import odds_utils
 
 
-LOGPATH = 'logs/merger/'
-LOGNAME = '{date}_merger_logs'
 
 DATAPATH = 'predictions_data/'
 MAJORDATANAME = 'my_prediction_major_data_{date1}_{date2}'
@@ -19,7 +16,7 @@ DATANAME = 'my_prediction_data_{date1}_{date2}'
 
 
 def newest_predictions(sever) -> str:
-    logger.log('info', f'Searching latest prediction file for {sever} leagues..')
+    print(f'Searching latest prediction file for {sever} leagues..')
     files = os.listdir(DATAPATH)
 
     paths = []
@@ -29,10 +26,10 @@ def newest_predictions(sever) -> str:
 
     try:
         file = max(paths, key=os.path.getctime)
-        logger.log('info', f'File found..', file)
+        print(f'File found..', file)
         return file
     except:
-        logger.log('warning', f'File for {sever} not found..')
+        print(f'WARNING: File for {sever} not found..')
         return('\\99999999')
     
 def accumulate_data(files: dict) -> pd.DataFrame:
@@ -41,7 +38,7 @@ def accumulate_data(files: dict) -> pd.DataFrame:
     if that source produced nothing today (e.g. no international fixtures
     outside a tournament window -- this is expected, not an error).
     """
-    logger.log('info', f'Trying to match prediction files from: {list(files.keys())}..')
+    print(f'Trying to match prediction files from: {list(files.keys())}..')
 
     def str_to_date(date_str):
         return datetime.datetime.strptime(date_str, '%d%m%Y')
@@ -49,12 +46,12 @@ def accumulate_data(files: dict) -> pd.DataFrame:
     available = {name: path for name, path in files.items() if '99999999' not in path}
 
     if not available:
-        logger.log('warning', 'No prediction files found from any source today..')
+        print('WARNING: No prediction files found from any source today..')
         return pd.DataFrame()
 
     if len(available) == 1:
         name, path = next(iter(available.items()))
-        logger.log('warning', f'Only {name} predictions found today')
+        print(f'WARNING: Only {name} predictions found today')
         return pd.read_csv(path)
 
     date_ranges = {}
@@ -68,18 +65,18 @@ def accumulate_data(files: dict) -> pd.DataFrame:
 
     if max_spread <= datetime.timedelta(days=1):
         dfs = [pd.read_csv(path) for path in available.values()]
-        logger.log('info', f'Matched {list(available.keys())} prediction files..')
+        print(f'Matched {list(available.keys())} prediction files..')
         return pd.concat(dfs, ignore_index=True)
     else:
         # Sources disagree on date range by more than a day -- keep only
         # whichever has the most recent data rather than mixing stale and
         # fresh predictions together.
         latest_name = max(date_ranges, key=lambda n: date_ranges[n][1])
-        logger.log('warning', f'Prediction files did not align in date.. keeping only {latest_name}')
+        print(f'WARNING: Prediction files did not align in date.. keeping only {latest_name}')
         return pd.read_csv(available[latest_name])
         
 def saveto_csv(towrite):
-    logger.log('info', f'Saving results..')
+    print(f'Saving results..')
 
     core = towrite['Date'].astype(str).str.split(",", n=1).str[0].str.strip()
 
@@ -109,10 +106,10 @@ def saveto_csv(towrite):
 
     filename = DATAPATH + '/' + datename
     towrite.to_csv(filename, index=False)
-    logger.log('info', f'Results saved to csv..', info=filename)
+    print(f'Results saved to csv..', filename)
 
 def odd_addition(df):
-    logger.log('info', f'Getting odds..')
+    print(f'Getting odds..')
 
     # Over/Under 2.5 columns aren't published for every league/source, so
     # fetch them defensively and fall back to NaN rather than failing the
@@ -122,14 +119,12 @@ def odd_addition(df):
 
     next_match1 = pd.read_csv('https://www.football-data.co.uk/fixtures.csv', encoding='utf-8-sig')
     have_ou_1 = team_utils.find_columns(next_match1.columns, ou_candidates)
-    logger.log('info', f'Main fixtures O/U columns found: {have_ou_1 or "NONE"}',
-               info=str(list(next_match1.columns)))
+    print(f'Main fixtures O/U columns found: {have_ou_1 or "NONE"}', list(next_match1.columns))
     next_match1 = next_match1[base_cols + have_ou_1]
 
     next_match2 = pd.read_csv('https://www.football-data.co.uk/new_league_fixtures.csv', encoding='utf-8-sig')
     have_ou_2 = team_utils.find_columns(next_match2.columns, ou_candidates)
-    logger.log('info', f'New-league fixtures O/U columns found: {have_ou_2 or "NONE"}',
-               info=str(list(next_match2.columns)))
+    print(f'New-league fixtures O/U columns found: {have_ou_2 or "NONE"}', list(next_match2.columns))
     next_match2 = next_match2[['Date','Time', 'Country', 'Home','Away', 'AvgH', 'AvgD', 'AvgA'] + have_ou_2]
     next_match2 = next_match2.rename(columns={'Country': 'Div', 'Home': 'HomeTeam', 'Away': 'AwayTeam'})
 
@@ -142,7 +137,7 @@ def odd_addition(df):
         if c not in next_match.columns:
             next_match[c] = None
 
-    logger.log('info', f'Domestic odds: {len(next_match)} fixtures, '
+    print(f'Domestic odds: {len(next_match)} fixtures, '
                         f'{next_match["AvgOver25"].notna().sum()} with an Over 2.5 price.')
 
     # football-data.co.uk (next_match above) only carries domestic-league
@@ -155,9 +150,9 @@ def odd_addition(df):
     # unmatched domestic row would.
     odds_cols = ['Date', 'Time', 'Div', 'HomeTeam', 'AwayTeam', 'AvgH', 'AvgD', 'AvgA', 'AvgOver25', 'AvgUnder25']
     try:
-        intl_odds = odds_client.fetch_all_international_odds(logger=logger)
+        intl_odds = odds_client.fetch_all_international_odds()
     except Exception as e:
-        logger.log('warning', 'Could not fetch international odds..', info=str(e))
+        print('WARNING: Could not fetch international odds..', e)
         intl_odds = pd.DataFrame(columns=odds_cols)
 
     next_match = pd.concat([next_match[odds_cols], intl_odds[odds_cols]], ignore_index=True)
@@ -200,7 +195,7 @@ def odd_addition(df):
 
     # Keep only original prediction columns + new mapped value
     df_result = merged[df.columns.tolist() + ['AVGOdd']]
-    logger.log('info', f'Odds Captured..')
+    print(f'Odds Captured..')
     return(df_result)
 
 def merging_func():
@@ -212,7 +207,7 @@ def merging_func():
     concdata = accumulate_data(source_files)
 
     if concdata.empty:
-        logger.log('warning', 'Nothing to merge today (no source produced predictions).')
+        print('WARNING: Nothing to merge today (no source produced predictions).')
         return
 
     # Clean up team display names once, right here, so every downstream
@@ -227,28 +222,22 @@ def merging_func():
     finaldf = odd_addition(concdata)
     saveto_csv(finaldf)
 
-    logger.log('info', f'Deleting interm files..', info=str(source_files))
+    print(f'Deleting interm files..', source_files)
 
     for path in source_files.values():
         if path != '\\99999999':
             os.remove(path)
 
-    logger.log('info', f'Process completed..')
+    print(f'Process completed..')
     return
 
 
 if __name__ == '__main__':
     os.chdir(os.path.dirname(__file__))
-    datesave = datetime.date.today().strftime('%Y%m%d')
-    LOGNAME = LOGNAME.replace('{date}', datesave) + '.json'
     
-    if os.path.exists(LOGPATH + '/' +LOGNAME):
-        logger = JSONLogger(log_file=LOGNAME, log_dir=LOGPATH)
-    else:
-        logger = JSONLogger(log_file=LOGNAME, log_dir=LOGPATH)
 
     try:
         merging_func()
 
     except Exception as e:
-        logger.log('critical', "Exception occured whie running", info=str(e))
+        print("CRITICAL: Exception occured whie running", e)

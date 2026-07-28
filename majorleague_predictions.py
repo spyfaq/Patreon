@@ -548,9 +548,8 @@ def upcoming(uri):
     fixtures.csv already carries AvgH/AvgD/AvgA and Avg>2.5/Avg<2.5. This
     used to select only the five identity columns and throw the prices
     away, so the odds had to be fetched by re-downloading the exact same
-    URL later (predictions_merger.odd_addition, best_bets_selector.
-    fetch_market_odds). Keeping them here means each prediction row can be
-    priced without a second network round-trip.
+    URL later. Keeping them here means each prediction row can be priced
+    without a second network round-trip.
 
     Odds columns are selected defensively: football-data.co.uk publishes
     fixtures.csv without them between rounds, and a missing price should

@@ -1,243 +1,276 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+"""
+predictions_merger.py
 
-import os, datetime, re
+Combines today's three prediction files (major / minor / international)
+into one, resolves contradictory picks, builds priced combo bets, drops
+short-priced singles, and writes merged-prediction-<date>.csv.
+
+Reads today's files by name -- majorleague/minorleague/international each
+write exactly one file per betting day (see date_utils for what "day"
+means: 09:00 through 08:59 the next morning). There is no "find the
+newest matching file" search and no date-range reconciliation between
+sources any more: all three are named for the same day, so the merger
+either finds today's file or that source didn't run.
+
+Odds arrive WITH the predictions. Each prediction row already carries the
+bookmaker price for its own market, so this script no longer re-downloads
+the football-data.co.uk fixtures feed or calls The Odds API -- that work
+now happens once, upstream, in the scripts that already had the fixture
+data in hand.
+"""
+
+import os
+import datetime
 import pandas as pd
+
 import team_utils
-import odds_client
-import odds_utils
-
-
+import market_odds
 
 DATAPATH = 'predictions_data/'
-MAJORDATANAME = 'my_prediction_major_data_{date1}_{date2}'
-MINORDATANAME = 'my_prediction_minor_data_{date1}_{date2}'
-DATANAME = 'my_prediction_data_{date1}_{date2}'
+
+# Exactly one file per source per betting day.
+SOURCE_TEMPLATES = {
+    'major': 'major_prediction_{date}.csv',
+    'minor': 'minor_prediction_{date}.csv',
+    'international': 'international_prediction_{date}.csv',
+}
+
+OUTPUT_TEMPLATE = 'merged-prediction-{date}.csv'
+
+# --------------------------------------------------------------- rules
+
+# Within one match exactly one of these can happen, so a match must not
+# end up with more than one of them in the output.
+#
+# The goal markets are deliberately NOT here. Over 1.5 / 2.5 / 3.5 are
+# nested rather than exclusive (if Over 3.5 lands, so did Over 2.5), as
+# are the team-goal markets, and GG is compatible with all of them. Only
+# the match-result market is genuinely one-of.
+MUTUALLY_EXCLUSIVE = ('1', 'X', '2')
+
+# Combo legs: a match-result side paired with a goal line. Restricted to
+# markets that carry a real or derived price, because a combo's whole
+# admission test is its combined odd -- an unpriced leg (GG, team-goal
+# markets) has no odd to combine.
+COMBO_SIDES = ('1', 'X', '2')
+COMBO_GOAL_LEGS = ('O1_5', 'O2_5', 'O3_5')
+
+# Combined odd = (leg1 x leg2) less a 5% haircut. Multiplying two prices
+# assumes the bookmaker would offer the fair product, which no bookmaker
+# does; the haircut stands in for the margin taken on a same-match combo.
+COMBO_MARGIN = 0.05
+
+MIN_COMBO_ODD = 1.72   # a combo below this isn't worth the added risk
+MIN_SINGLE_ODD = 1.32  # too short to pay for its own variance
+
+OUTPUT_COLUMNS = ["Division", "Date", "Time", "HomeTeam", "AwayTeam",
+                  "Prediction", "Prediction %", "Odd", "Implied %", "Edge %",
+                  "History %", "HomeTeam Stats", "AwayTeam Stats",
+                  "HomeForm", "AwayForm"]
+
+# Identifies one fixture across the three sources.
+MATCH_KEY = ['MatchDate', 'HomeTeam', 'AwayTeam']
 
 
-def newest_predictions(sever) -> str:
-    print(f'Searching latest prediction file for {sever} leagues..')
-    files = os.listdir(DATAPATH)
+def today_str(reference=None):
+    return (reference or datetime.date.today()).strftime('%Y-%m-%d')
 
-    paths = []
-    for basename in files:
-       if f'my_prediction_{sever}_data_' in basename:
-        paths.append(os.path.join(DATAPATH, basename))
 
-    try:
-        file = max(paths, key=os.path.getctime)
-        print(f'File found..', file)
-        return file
-    except:
-        print(f'WARNING: File for {sever} not found..')
-        return('\\99999999')
-    
-def accumulate_data(files: dict) -> pd.DataFrame:
-    """Merge prediction files from multiple sources (major/minor/international).
-    `files` maps a source name to its file path, or the '\\99999999' sentinel
-    if that source produced nothing today (e.g. no international fixtures
-    outside a tournament window -- this is expected, not an error).
+def load_sources(day):
+    """Read today's file from each source. A missing file is normal, not an
+    error: international only produces one during a tournament window, and
+    a domestic script exits early on a day with no fixtures."""
+    frames = []
+    for name, template in SOURCE_TEMPLATES.items():
+        path = os.path.join(DATAPATH, template.format(date=day))
+        if not os.path.exists(path):
+            print(f'No {name} file for {day} -- skipping.')
+            continue
+        df = pd.read_csv(path)
+        if df.empty:
+            print(f'{name} file for {day} is empty -- skipping.')
+            continue
+        print(f'Loaded {len(df)} {name} predictions.')
+        frames.append(df)
+
+    if not frames:
+        return pd.DataFrame(columns=OUTPUT_COLUMNS)
+    return pd.concat(frames, ignore_index=True)
+
+
+def normalize_dates(df):
+    """Add a parsed MatchDate used for grouping and sorting.
+
+    The sources don't agree on Date formatting -- major writes
+    '2026-07-28, Tuesday' and minor writes '28-07-2026, Tuesday' -- so the
+    weekday suffix is stripped and both layouts are tried. Grouping on the
+    raw strings would treat the same fixture from two sources as two
+    different matches.
     """
-    print(f'Trying to match prediction files from: {list(files.keys())}..')
+    core = df['Date'].astype(str).str.split(',', n=1).str[0].str.strip()
+    parsed = pd.to_datetime(core, format='%Y-%m-%d', errors='coerce')
+    parsed = parsed.fillna(pd.to_datetime(core, format='%d-%m-%Y', errors='coerce'))
+    parsed = parsed.fillna(pd.to_datetime(core, errors='coerce'))
+    df['MatchDate'] = parsed
+    return df
 
-    def str_to_date(date_str):
-        return datetime.datetime.strptime(date_str, '%d%m%Y')
 
-    available = {name: path for name, path in files.items() if '99999999' not in path}
+def drop_mutually_exclusive(df):
+    """Keep at most one of 1/X/2 per match.
 
-    if not available:
-        print('WARNING: No prediction files found from any source today..')
-        return pd.DataFrame()
+    Each market is gated against its own base rate upstream, so a match can
+    clear the floor for more than one result -- e.g. a home win at 47% and
+    an away win at 31% both qualify, leaving the file recommending both
+    sides of the same game.
 
-    if len(available) == 1:
-        name, path = next(iter(available.items()))
-        print(f'WARNING: Only {name} predictions found today')
-        return pd.read_csv(path)
+    The survivor is the highest model probability: that is the pick the
+    model actually makes. Edge is deliberately NOT the tie-breaker -- it
+    would let a 25%-probability outsider displace a 50% favourite purely
+    because it was generously priced, which is a bet-selection judgement
+    rather than a contradiction to resolve. Downstream selection can still
+    rank on edge; this only removes the self-contradiction.
+    """
+    excl = df[df['Prediction'].isin(MUTUALLY_EXCLUSIVE)]
+    if excl.empty:
+        return df
 
-    date_ranges = {}
-    for name, path in available.items():
-        dates = re.findall(r'\d{8}', path)
-        date_ranges[name] = (str_to_date(dates[0]), str_to_date(dates[1]))
+    # Highest probability first, so the first row of each group wins.
+    ordered = excl.sort_values('Prediction %', ascending=False, kind='mergesort')
+    keep_idx = set(ordered.groupby(MATCH_KEY, dropna=False).head(1).index)
 
-    starts = [r[0] for r in date_ranges.values()]
-    ends = [r[1] for r in date_ranges.values()]
-    max_spread = max(max(starts) - min(starts), max(ends) - min(ends))
+    dropped = len(excl) - len(keep_idx)
+    result = df[~df.index.isin(set(excl.index) - keep_idx)]
+    if dropped:
+        print(f'Removed {dropped} contradictory result picks (kept one of 1/X/2 per match).')
+    return result
 
-    if max_spread <= datetime.timedelta(days=1):
-        dfs = [pd.read_csv(path) for path in available.values()]
-        print(f'Matched {list(available.keys())} prediction files..')
-        return pd.concat(dfs, ignore_index=True)
-    else:
-        # Sources disagree on date range by more than a day -- keep only
-        # whichever has the most recent data rather than mixing stale and
-        # fresh predictions together.
-        latest_name = max(date_ranges, key=lambda n: date_ranges[n][1])
-        print(f'WARNING: Prediction files did not align in date.. keeping only {latest_name}')
-        return pd.read_csv(available[latest_name])
-        
-def saveto_csv(towrite):
-    print(f'Saving results..')
 
-    core = towrite['Date'].astype(str).str.split(",", n=1).str[0].str.strip()
+def build_combos(df):
+    """Same-match side + goal-line combos, kept only when the combined odd
+    clears MIN_COMBO_ODD.
 
-    # Remove the weekday name after the comma
-    d_ymd = pd.to_datetime(core, format="%Y-%m-%d", errors="coerce")  # 2025-08-17
-    d_dmy = pd.to_datetime(core, format="%d-%m-%Y", errors="coerce")  # 15-08-2025
-    d_full = pd.to_datetime(core, format="%Y-%m-%d %H:%M:%S", errors="coerce")  # YYYY-MM-DD HH:MM:SS
+    Probability caveat: the combined probability here is the PRODUCT of the
+    two legs, i.e. it assumes they are independent. They are not -- a home
+    win and a high-scoring game are correlated, so the product is biased
+    (generally low for 1+Over, high for X+Over). The exact joint
+    probability can only be read off the Dixon-Coles score grid, which
+    exists in the prediction scripts but is not carried in their output.
+    Treat the combo's 'Prediction %' as indicative; its odd is exact.
+    """
+    priced = df[df['Odd'].notna()]
+    if priced.empty:
+        print('No priced rows -- no combos built.')
+        return pd.DataFrame(columns=df.columns)
 
-    # 3) Merge results (priority: full datetime > YYYY-MM-DD > DD-MM-YYYY)
-    towrite["Date"] = d_full.fillna(d_ymd).fillna(d_dmy)
+    combos = []
+    for _, match in priced.groupby(MATCH_KEY, dropna=False):
+        sides = match[match['Prediction'].isin(COMBO_SIDES)]
+        goals = match[match['Prediction'].isin(COMBO_GOAL_LEGS)]
+        if sides.empty or goals.empty:
+            continue
 
-    towrite['Date'] = towrite['Date'].dt.strftime('%d-%m-%Y')
-    towrite['Date_temp'] = pd.to_datetime(towrite['Date'], dayfirst=True)
-    towrite['Time_temp'] = (
-    pd.to_datetime(towrite['Time'], errors='coerce')
-    .dt.time
-    .fillna(datetime.time(0, 0))  # replace NaT with 00:00
-)
-    towrite['Datetime_temp'] = towrite.apply(lambda x: pd.Timestamp.combine(x['Date_temp'], x['Time_temp']), axis=1)
-    towrite.sort_values(by=['Datetime_temp', 'HomeTeam'], inplace=True)
+        for _, side in sides.iterrows():
+            for _, goal in goals.iterrows():
+                combined = float(side['Odd']) * float(goal['Odd']) * (1 - COMBO_MARGIN)
+                combined = round(combined, 2)
+                if combined <= MIN_COMBO_ODD:
+                    continue
 
-    fromdate = min(towrite['Date_temp']).strftime('%d%m%Y')
-    todate = max(towrite['Date_temp']).strftime('%d%m%Y')
+                prob = float(side['Prediction %']) * float(goal['Prediction %'])
+                row = side.copy()
+                row['Prediction'] = f"{side['Prediction']}+{goal['Prediction']}"
+                row['Prediction %'] = round(prob, 4)
+                row['Odd'] = combined
+                row['Implied %'] = market_odds.implied_prob(combined)
+                row['Edge %'] = market_odds.edge(prob, combined)
+                # No head-to-head record exists for a combined outcome.
+                row['History %'] = '-'
+                combos.append(row)
 
-    towrite.drop(columns=['Date_temp', 'Time_temp', 'Datetime_temp'],inplace=True)
-    datename = DATANAME.replace('{date1}', fromdate).replace('{date2}', todate) + '.csv'
+    if not combos:
+        print(f'No combos cleared the {MIN_COMBO_ODD} combined-odd floor.')
+        return pd.DataFrame(columns=df.columns)
 
-    filename = DATAPATH + '/' + datename
-    towrite.to_csv(filename, index=False)
-    print(f'Results saved to csv..', filename)
+    print(f'Built {len(combos)} combos above {MIN_COMBO_ODD}.')
+    return pd.DataFrame(combos).reset_index(drop=True)
 
-def odd_addition(df):
-    print(f'Getting odds..')
 
-    # Over/Under 2.5 columns aren't published for every league/source, so
-    # fetch them defensively and fall back to NaN rather than failing the
-    # whole merge if a source is missing them.
-    ou_candidates = ['Avg>2.5', 'Avg<2.5']
-    base_cols = ['Date', 'Time', 'Div', 'HomeTeam', 'AwayTeam', 'AvgH', 'AvgD', 'AvgA']
+def drop_short_prices(df):
+    """Drop rows priced below MIN_SINGLE_ODD.
 
-    next_match1 = pd.read_csv('https://www.football-data.co.uk/fixtures.csv', encoding='utf-8-sig')
-    have_ou_1 = team_utils.find_columns(next_match1.columns, ou_candidates)
-    print(f'Main fixtures O/U columns found: {have_ou_1 or "NONE"}', list(next_match1.columns))
-    next_match1 = next_match1[base_cols + have_ou_1]
+    Blank odds are KEPT. An empty price means the market has no published
+    odd anywhere (GG, the team-goal markets) -- that is missing
+    information, not a short price, and dropping those rows would silently
+    delete every prediction for markets we simply can't price.
+    """
+    odd = pd.to_numeric(df['Odd'], errors='coerce')
+    too_short = odd.notna() & (odd < MIN_SINGLE_ODD)
+    if too_short.any():
+        print(f'Removed {int(too_short.sum())} predictions priced under {MIN_SINGLE_ODD}.')
+    return df[~too_short]
 
-    next_match2 = pd.read_csv('https://www.football-data.co.uk/new_league_fixtures.csv', encoding='utf-8-sig')
-    have_ou_2 = team_utils.find_columns(next_match2.columns, ou_candidates)
-    print(f'New-league fixtures O/U columns found: {have_ou_2 or "NONE"}', list(next_match2.columns))
-    next_match2 = next_match2[['Date','Time', 'Country', 'Home','Away', 'AvgH', 'AvgD', 'AvgA'] + have_ou_2]
-    next_match2 = next_match2.rename(columns={'Country': 'Div', 'Home': 'HomeTeam', 'Away': 'AwayTeam'})
 
-    next_match = pd.concat([next_match1, next_match2])
-    next_match['Date'] = pd.to_datetime(next_match['Date'], format='%d/%m/%Y')
-    next_match = next_match.rename(columns={c: 'AvgOver25' for c in have_ou_1 + have_ou_2 if c.strip().lower() == 'avg>2.5'})
-    next_match = next_match.rename(columns={c: 'AvgUnder25' for c in have_ou_1 + have_ou_2 if c.strip().lower() == 'avg<2.5'})
+def save_merged(df, day):
+    if not os.path.exists(DATAPATH):
+        os.makedirs(DATAPATH)
 
-    for c in ['AvgD', 'AvgOver25', 'AvgUnder25']:
-        if c not in next_match.columns:
-            next_match[c] = None
+    df = df.sort_values(['MatchDate', 'Time', 'HomeTeam', 'Prediction'], kind='mergesort')
 
-    print(f'Domestic odds: {len(next_match)} fixtures, '
-                        f'{next_match["AvgOver25"].notna().sum()} with an Over 2.5 price.')
+    # Restate Date in ONE format. The sources disagree (major writes
+    # '2026-07-28, Tuesday', minor '28-07-2026, Tuesday'), and a merged
+    # file carrying both is ambiguous to read and to re-parse -- '05-06'
+    # means two different days depending on which source a row came from.
+    # Sorting already used the parsed MatchDate, so this only affects how
+    # the column reads.
+    formatted = df['MatchDate'].dt.strftime('%Y-%m-%d, %A')
+    df['Date'] = formatted.fillna(df['Date'])
 
-    # football-data.co.uk (next_match above) only carries domestic-league
-    # odds -- nothing for Champions League / World Cup / Euros. Pull those
-    # 3 from The Odds API instead (odds_client.py), already shaped to the
-    # same Avg*/Date/Time/Div/HomeTeam/AwayTeam columns. A fetch failure
-    # here (missing ODDS_API_KEY, API down, outside a tournament window)
-    # shouldn't block odds for the domestic leagues that already succeeded
-    # above -- international rows just end up with no AVGOdd, same as any
-    # unmatched domestic row would.
-    odds_cols = ['Date', 'Time', 'Div', 'HomeTeam', 'AwayTeam', 'AvgH', 'AvgD', 'AvgA', 'AvgOver25', 'AvgUnder25']
-    try:
-        intl_odds = odds_client.fetch_all_international_odds()
-    except Exception as e:
-        print('WARNING: Could not fetch international odds..', e)
-        intl_odds = pd.DataFrame(columns=odds_cols)
+    df = df[OUTPUT_COLUMNS]
 
-    next_match = pd.concat([next_match[odds_cols], intl_odds[odds_cols]], ignore_index=True)
+    filename = os.path.join(DATAPATH, OUTPUT_TEMPLATE.format(date=day))
+    df.to_csv(filename, index=False)
+    print(f'Saved {len(df)} rows -> {filename}')
+    return filename
 
-    # football-data.co.uk (and The Odds API's totals market, fetched only
-    # at the 2.5 line) never publishes Over 1.5 / Over 3.5 odds at all --
-    # approximate them from the real Over 2.5 price (see odds_utils.py).
-    next_match['AvgOver15'], next_match['AvgOver35'] = odds_utils.derive_over_under_odds(next_match['AvgOver25'])
 
-    # Merge predictions with fixture odds, tolerating team-naming
-    # differences between whichever source produced the prediction
-    # (football-data.co.uk for major/minor, football-data.org for
-    # international) and whichever source has the odds (football-data.co.uk
-    # fixtures for domestic, The Odds API for international) -- an exact
-    # string merge previously dropped every international row outright and
-    # would silently miss any domestic team name that drifted even
-    # slightly between the two feeds.
-    odds_lookup = next_match[['HomeTeam', 'AwayTeam', 'AvgH', 'AvgD', 'AvgA',
-                               'AvgOver25', 'AvgUnder25', 'AvgOver15', 'AvgOver35']]
-    merged = team_utils.fuzzy_merge(df, odds_lookup, left_on=('HomeTeam', 'AwayTeam'),
-                                     right_on=('HomeTeam', 'AwayTeam'))
+def merging_func(reference=None):
+    day = today_str(reference)
+    print(f'Merging predictions for {day}..')
 
-    # Map based on prediction type
-    def map_avg(row):
-        if row['Prediction'] == '1':
-            return row['AvgH']
-        elif row['Prediction'] == 'X':
-            return row['AvgD']
-        elif row['Prediction'] == '2':
-            return row['AvgA']
-        elif row['Prediction'] == 'O2_5':
-            return row['AvgOver25']
-        elif row['Prediction'] == 'O1_5':
-            return row['AvgOver15']
-        elif row['Prediction'] == 'O3_5':
-            return row['AvgOver35']
-        return None
-
-    merged['AVGOdd'] = merged.apply(map_avg, axis=1)
-
-    # Keep only original prediction columns + new mapped value
-    df_result = merged[df.columns.tolist() + ['AVGOdd']]
-    print(f'Odds Captured..')
-    return(df_result)
-
-def merging_func():
-    source_files = {
-        'major': newest_predictions('major'),
-        'minor': newest_predictions('minor'),
-        'international': newest_predictions('international'),
-    }
-    concdata = accumulate_data(source_files)
-
-    if concdata.empty:
-        print('WARNING: Nothing to merge today (no source produced predictions).')
+    df = load_sources(day)
+    if df.empty:
+        print('Nothing to merge -- no source produced predictions today.')
         return
 
-    # Clean up team display names once, right here, so every downstream
-    # consumer (odds merge below, predictions_tier.py's posted output,
-    # update_results.py's settlement match) works from the same canonical
-    # names from this point on -- e.g. international's football-data.org
-    # "Real Madrid CF" becomes "Real Madrid", matching the short-form
-    # names major/minor already use from football-data.co.uk.
-    concdata['HomeTeam'] = concdata['HomeTeam'].apply(team_utils.display_name)
-    concdata['AwayTeam'] = concdata['AwayTeam'].apply(team_utils.display_name)
+    # Canonical team names, so the same fixture from two sources groups as
+    # one match here and settles correctly in update_results.py later.
+    df['HomeTeam'] = df['HomeTeam'].apply(team_utils.display_name)
+    df['AwayTeam'] = df['AwayTeam'].apply(team_utils.display_name)
 
-    finaldf = odd_addition(concdata)
-    saveto_csv(finaldf)
+    df = normalize_dates(df)
+    df = df.reset_index(drop=True)
 
-    print(f'Deleting interm files..', source_files)
+    df = drop_mutually_exclusive(df)
+    combos = build_combos(df)
+    if not combos.empty:
+        df = pd.concat([df, combos], ignore_index=True)
 
-    for path in source_files.values():
-        if path != '\\99999999':
-            os.remove(path)
+    df = drop_short_prices(df)
+    if df.empty:
+        print('Every prediction was filtered out -- nothing to save.')
+        return
 
-    print(f'Process completed..')
-    return
+    save_merged(df, day)
+    print('Process completed..')
 
 
 if __name__ == '__main__':
     os.chdir(os.path.dirname(__file__))
-    
 
     try:
         merging_func()
-
     except Exception as e:
-        print("CRITICAL: Exception occured whie running", e)
+        print('CRITICAL: Exception occured whie running', e)
+        raise

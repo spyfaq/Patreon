@@ -12,8 +12,8 @@ including these 3, gives fixtures/results/standings, 10 requests/minute.
 Requires a free API token (sign up at https://www.football-data.org/client/register)
 set as the FOOTBALL_DATA_ORG_TOKEN environment variable / GitHub secret.
 NOTE: the free tier does NOT include odds. Odds for these 3 competitions
-come from odds_client.py (The Odds API) instead, merged in by team name via
-team_utils.py in predictions_merger.py's odd_addition() -- see that file.
+come from odds_client.py (The Odds API) instead, matched to each fixture by
+team name via market_odds.py so every row is priced before it is written.
 
 Reuses the core Dixon-Coles modeling/output logic from
 majorleague_predictions.py (dixon_coles_simulate_match, solve_parameters_decay,

@@ -3,8 +3,8 @@
 """
 odds_client.py
 
-football-data.co.uk (the odds source odd_addition() in predictions_merger.py
-already uses) only carries domestic-league odds -- it has nothing for the
+football-data.co.uk (the odds source the domestic prediction scripts read
+straight off their fixtures feed) only carries domestic-league odds -- it has nothing for the
 Champions League, World Cup, or European Championship. This module fills
 that specific gap using The Odds API (https://the-odds-api.com), which does
 cover those three on its free tier (500 requests/month, no card required).
@@ -50,9 +50,9 @@ def _average(values):
 
 def fetch_odds_for_competition(code):
     """Fetch upcoming h2h + totals odds for one international competition,
-    shaped into the same Avg*/Date/Time/Div/HomeTeam/AwayTeam columns
-    odd_addition() already expects from football-data.co.uk, so it plugs
-    into the existing merge logic without a special case downstream.
+    shaped into the same Avg*/Date/Time/Div/HomeTeam/AwayTeam columns the
+    domestic fixtures feed provides, so market_odds prices an
+    international fixture exactly like a domestic one.
     Returns an empty DataFrame (not an exception) if the competition has
     no events right now or the request fails -- a quiet no-op is correct
     outside of a tournament window."""
@@ -125,8 +125,7 @@ def fetch_odds_for_competition(code):
 
 def fetch_all_international_odds():
     """Odds for all 3 international competitions, concatenated into one
-    DataFrame ready to be appended alongside the football-data.co.uk
-    fixtures in odd_addition()."""
+    DataFrame, consumed by international_predictions.py to price its rows."""
     frames = [fetch_odds_for_competition(code) for code in SPORT_KEYS]
     frames = [f for f in frames if not f.empty]
     if not frames:

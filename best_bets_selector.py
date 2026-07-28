@@ -123,8 +123,7 @@ def newest_predictions() -> str:
 def fetch_market_odds() -> pd.DataFrame:
     """Pull fresh fixture odds covering 1X2 and Over/Under 2.5 (Over 1.5 /
     Over 3.5 are derived from Over 2.5, see odds_utils.py): domestic from
-    football-data.co.uk (mirrors predictions_merger.odd_addition, extended
-    to O/U), plus international (CL/WC/EC) from The Odds API via
+    football-data.co.uk, plus international (CL/WC/EC) from The Odds API via
     odds_client.py, since football-data.co.uk has nothing for those 3
     competitions -- this script previously only ever priced domestic
     matches, so Best Bets/Bet Builder/Suggested Bets silently never
@@ -597,9 +596,8 @@ def _main_impl():
     # carries Date/Time/Div for its own bookkeeping, but predictions
     # already have their own (authoritative) versions of those. fuzzy_merge
     # now excludes any right-side column that collides with a left-side
-    # one anyway, but doing it explicitly here matches
-    # predictions_merger.odd_addition()'s existing pattern and keeps the
-    # merge's intent obvious: only genuinely new fields cross over.
+    # one anyway, but doing it explicitly here keeps the merge's intent
+    # obvious: only genuinely new fields cross over.
     odds_cols = ['HomeTeam', 'AwayTeam', 'AvgH', 'AvgD', 'AvgA',
                  'AvgOver25', 'AvgUnder25', 'AvgOver15', 'AvgOver35']
     odds = odds[[c for c in odds_cols if c in odds.columns]]

@@ -3,9 +3,9 @@
 """
 odds_utils.py
 
-Shared odds-math helpers used by predictions_merger.py's odd_addition()
-and best_bets_selector.py, so both derive Over 1.5 / Over 3.5 odds the
-same way instead of each carrying its own (potentially drifting) copy.
+Shared odds-math helper used by market_odds.py and best_bets_selector.py,
+so both derive Over 1.5 / Over 3.5 odds the same way instead of each
+carrying its own (potentially drifting) copy.
 
 football-data.co.uk only publishes Over/Under 2.5 goals odds -- Over 1.5
 and Over 3.5 have no real market price at all in this data. These are

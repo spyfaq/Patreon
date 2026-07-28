@@ -3,11 +3,7 @@
 
 import os, datetime, re
 import pandas as pd
-from jsonlogger_class import JSONLogger
 
-
-LOGPATH = 'logs/merger/'
-LOGNAME = '{date}_merger_logs'
 
 DATAPATH = 'predictions_data/'
 MAJORDATANAME = 'my_prediction_major_data_{date1}_{date2}'
@@ -16,7 +12,7 @@ DATANAME = 'my_prediction_data_{date1}_{date2}'
 
 
 def newest_predictions(sever) -> str:
-    logger.log('info', f'Searching latest prediction file for {sever} leagues..')
+    print(f'Searching latest prediction file for {sever} leagues..')
     files = os.listdir(DATAPATH)
 
     paths = []
@@ -26,14 +22,14 @@ def newest_predictions(sever) -> str:
 
     try:
         file = max(paths, key=os.path.getctime)
-        logger.log('info', f'File found..', file)
+        print(f'File found..', file)
         return file
     except:
-        logger.log('warning', f'File for {sever} not found..')
+        print(f'WARNING: File for {sever} not found..')
         return('\\99999999')
     
 def accumulate_data(majorfile, minorfile):
-    logger.log('info', f'Trying to match major n minor league files..')
+    print(f'Trying to match major n minor league files..')
     
     def str_to_date(date_str):
         print(date_str)
@@ -59,7 +55,7 @@ def accumulate_data(majorfile, minorfile):
         
             concatenated_df = pd.concat([major_df, minor_df], ignore_index=True)
 
-            logger.log('info', f'Matched major n minor league files..')
+            print(f'Matched major n minor league files..')
             return concatenated_df
         else:
             # Determine which file has the latest data
@@ -68,20 +64,20 @@ def accumulate_data(majorfile, minorfile):
             else:
                 latest_df = pd.read_csv(minorfile)
 
-            logger.log('warning', f'Didnt match major n minor league files.. Keeping last file', info=latest_df)
+            print(f'WARNING: Didnt match major n minor league files.. Keeping last file', latest_df)
             return latest_df
     else:
         if '99999999' in majorfile: 
-            logger.log('warning', f'Only minor leagues found')
+            print(f'WARNING: Only minor leagues found')
             latest_df = pd.read_csv(minorfile)
             return latest_df
         else:
-            logger.log('warning', f'Only major leagues found')
+            print(f'WARNING: Only major leagues found')
             latest_df = pd.read_csv(majorfile)
             return latest_df
         
 def saveto_csv(towrite):
-    logger.log('info', f'Saving results..')
+    print(f'Saving results..')
 
     core = towrite['Date'].astype(str).str.split(",", n=1).str[0].str.strip()
 
@@ -111,10 +107,10 @@ def saveto_csv(towrite):
 
     filename = DATAPATH + '/' + datename
     towrite.to_csv(filename, index=False)
-    logger.log('info', f'Results saved to csv..', info=filename)
+    print(f'Results saved to csv..', filename)
 
 def odd_addition(df):
-    logger.log('info', f'Getting odds..')
+    print(f'Getting odds..')
     next_match1 = pd.read_csv('https://www.football-data.co.uk/fixtures.csv', encoding='utf-8-sig')
     next_match1 = next_match1[['Date','Time','Div','HomeTeam','AwayTeam', 'AvgH', 'AvgD', 'AvgA']]
 
@@ -140,7 +136,7 @@ def odd_addition(df):
 
     # Keep only original prediction columns + new mapped value
     df_result = merged[df.columns.tolist() + ['AVGOdd']]
-    logger.log('info', f'Odds Captured..')
+    print(f'Odds Captured..')
     return(df_result)
 
 def merging_func():
@@ -150,7 +146,7 @@ def merging_func():
     finaldf = odd_addition(concdata)
     saveto_csv(finaldf)
 
-    logger.log('info', f'Deleting interm files..', info=f'{last_majorfile}, {last_minorfile}')
+    print(f'Deleting interm files..', f'{last_majorfile}, {last_minorfile}')
 
     if last_majorfile != '\\99999999':
         os.remove(last_majorfile)
@@ -158,22 +154,15 @@ def merging_func():
     if last_minorfile != '\\99999999':
         os.remove(last_minorfile)
     
-    logger.log('info', f'Process completed..')
+    print(f'Process completed..')
     return
 
 
 if __name__ == '__main__':
     os.chdir(os.path.dirname(__file__))
-    datesave = datetime.date.today().strftime('%Y%m%d')
-    LOGNAME = LOGNAME.replace('{date}', datesave) + '.json'
-    
-    if os.path.exists(LOGPATH + '/' +LOGNAME):
-        logger = JSONLogger(log_file=LOGNAME, log_dir=LOGPATH)
-    else:
-        logger = JSONLogger(log_file=LOGNAME, log_dir=LOGPATH)
 
     try:
         merging_func()
 
     except Exception as e:
-        logger.log('critical', "Exception occured whie running", info=str(e))
+        print("CRITICAL: Exception occured whie running", e)

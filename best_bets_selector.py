@@ -25,10 +25,7 @@ import re
 import datetime
 import numpy as np
 import pandas as pd
-from jsonlogger_class import JSONLogger
 
-LOGPATH = 'logs/bestbets/'
-LOGNAME = '{date}_bestbets_logs'
 DATAPATH = 'predictions_data/'
 PUBLISHPATH = 'publish/'
 
@@ -57,14 +54,14 @@ PREDICTION_LABELS = {
 
 
 def newest_predictions() -> str:
-    logger.log('info', 'Searching latest merged prediction file..')
+    print('Searching latest merged prediction file..')
     files = os.listdir(DATAPATH)
     paths = [os.path.join(DATAPATH, f) for f in files if 'my_prediction_data_' in f]
     if not paths:
-        logger.log('error', 'No merged prediction file found..')
+        print('ERROR: No merged prediction file found..')
         raise FileNotFoundError("No file matching 'my_prediction_data_*' in " + DATAPATH)
     file = max(paths, key=os.path.getctime)
-    logger.log('info', 'File found..', info=file)
+    print('File found..', file)
     return file
 
 
@@ -73,7 +70,7 @@ def fetch_market_odds() -> pd.DataFrame:
     main and 'new league' football-data.co.uk fixture files (mirrors the
     logic already used in predictions_merger.odd_addition, extended to O/U).
     """
-    logger.log('info', 'Fetching market odds (1X2 + O/U 2.5)..')
+    print('Fetching market odds (1X2 + O/U 2.5)..')
 
     cols_main = ['Date', 'Time', 'Div', 'HomeTeam', 'AwayTeam', 'AvgH', 'AvgD', 'AvgA']
     ou_candidates = ['Avg>2.5', 'Avg<2.5']
@@ -178,7 +175,7 @@ def select_best_bets(df: pd.DataFrame) -> pd.DataFrame:
     ]
 
     if priced.empty:
-        logger.log('warning', 'No matches cleared the edge/probability thresholds today.')
+        print('WARNING: No matches cleared the edge/probability thresholds today.')
         return priced
 
     priced['EV'] = priced.apply(
@@ -215,7 +212,7 @@ def format_telegram(best: pd.DataFrame, date_str: str) -> str:
 
 def main():
     filename = newest_predictions()
-    logger.log('info', 'Loading merged predictions..', info=filename)
+    print('Loading merged predictions..', filename)
     df = pd.read_csv(filename)
 
     odds = fetch_market_odds()
@@ -237,21 +234,18 @@ def main():
         out_cols = ['Division', 'Date', 'Time', 'HomeTeam', 'AwayTeam', 'PredictionLabel',
                     'ModelProb', 'MarketOdd', 'ImpliedProb', 'Edge', 'EV']
         best[out_cols].to_csv(f"{PUBLISHPATH}/BestBets_{date_str}.csv", index=False)
-        logger.log('info', f'Selected {len(best)} best bets.', info=str(best["Match"].tolist()))
+        print(f'Selected {len(best)} best bets.', best["Match"].tolist())
     else:
-        logger.log('warning', 'No best bets selected today.')
+        print('WARNING: No best bets selected today.')
 
     print(tg_text)
 
 
 if __name__ == '__main__':
     os.chdir(os.path.dirname(__file__))
-    datesave = datetime.date.today().strftime('%Y%m%d')
-    LOGNAME = LOGNAME.replace('{date}', datesave) + '.json'
-    logger = JSONLogger(log_file=LOGNAME, log_dir=LOGPATH)
 
     try:
         main()
     except Exception as e:
-        logger.log('critical', "Exception occurred while running best_bets_selector", info=str(e))
+        print("CRITICAL: Exception occurred while running best_bets_selector", e)
         raise

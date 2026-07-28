@@ -6,7 +6,6 @@ import numpy as np
 import  sys, os, datetime, warnings
 from scipy.stats import poisson
 from scipy.optimize import minimize
-from jsonlogger_class import JSONLogger
 from collections import defaultdict
 
 """
@@ -50,8 +49,6 @@ Path to save  data
 """
 DATAPATH = 'predictions_data/'
 DATANAME = 'my_prediction_minor_data_{date1}_{date2}'
-LOGPATH = 'logs/simu/'
-LOGNAME = '{date}_my_prediction_minor_logs'
 
 warnings.filterwarnings('ignore')
 
@@ -130,7 +127,7 @@ def dixon_coles_simulate_match(params_dict, homeTeam, awayTeam, max_goals=5):
     total = output_matrix.sum()
     if total <= 0 or not np.isfinite(total):
         try:
-            logger.log('error', f"Non-positive total probability for {homeTeam}-{awayTeam}", info=str(total))
+            print(f"ERROR: Non-positive total probability for {homeTeam}-{awayTeam}", total)
         except Exception:
             pass
         sz = output_matrix.shape[0]
@@ -275,7 +272,6 @@ def resultdef(result, ht, at, divis, mdata, mtime, standings, old_df, lgdata, TH
     outcome = pd.DataFrame(columns=["Division", "Date", "Time", "HomeTeam", "AwayTeam", "Prediction", "Prediction %", 
                              "History %", "HomeTeam Stats", "AwayTeam Stats", "HomeForm", "AwayForm"])
     
-    logger.log('info', "Calculating class history", info=str(f'{ht}-{at}'))
     hist_dict = historyfunc(path, ht, at, old_df)
     form_df = calculate_win_and_goal_form(lgdata)
     for res in dict.keys():
@@ -283,7 +279,7 @@ def resultdef(result, ht, at, divis, mdata, mtime, standings, old_df, lgdata, TH
             try:
                 hist_perc = hist_dict[res]
             except:
-                logger.log('warning', f"No history data for {ht}-{at}",)
+                print(f"WARNING: No history data for {ht}-{at}")
                 hist_perc = '-'
 
             homestats = standings.loc[standings['team'] == ht, 'summary_home'].squeeze()
@@ -391,7 +387,7 @@ def save_results_(df):
         towrite.sort_values(by=['Datetime_temp', 'HomeTeam'], inplace=True)
         towrite.drop(columns=['Date_temp', 'Time_temp', 'Datetime_temp'],inplace=True)
     except:
-        logger.log('error', f"Issue converting date.. Saving without sorting..")
+        print(f"ERROR: Issue converting date.. Saving without sorting..")
         
     towrite.to_csv(filename, index=False)
 
@@ -666,32 +662,21 @@ def calc_standings(results, season=None):
 
 if __name__ == '__main__':
     os.chdir(os.path.dirname(__file__))
-    datesave = datetime.date.today().strftime('%Y%m%d')
-    LOGNAME = LOGNAME.replace('{date}', datesave) + '.json'
 
-    if os.path.exists(LOGPATH + '/' +LOGNAME):
-        logger = JSONLogger(log_file=LOGNAME, log_dir=LOGPATH)
-        logger.log('critical', "Tried to rerun! Forced exit app!")
-        exit()
-    else:
-        logger = JSONLogger(log_file=LOGNAME, log_dir=LOGPATH)
-
-
-    logger.log('info', "Downloading schedule..")
+    print("Downloading schedule..")
     next_match = upcoming('https://www.football-data.co.uk/new_league_fixtures.csv')
     fromdate = min(next_match['Date']).strftime('%d%m%Y')
     todate = max(next_match['Date']).strftime('%d%m%Y')
     DATANAME = DATANAME.replace('{date1}', fromdate).replace('{date2}', todate) + '.csv'
     if os.path.exists(DATAPATH + '/' +DATANAME):
-        logger = JSONLogger(log_file=LOGNAME, log_dir=LOGPATH)
-        logger.log('critical', "Data exists already! Forced exit app!")
+        print("CRITICAL: Data exists already! Forced exit app!")
         exit()
     
     if next_match['Date'].max() <= pd.Timestamp(datetime.date.today() - datetime.timedelta(days=2)):
-        logger.log('info', "Nothing new.. Bye")
+        print("Nothing new.. Bye")
         sys.exit()
 
-    logger.log('info', "Running for each league..", info=str(len(LEAGUES)))
+    print("Running for each league..", len(LEAGUES))
     results_df = pd.DataFrame()
     for key in LEAGUES:
         
@@ -700,27 +685,27 @@ if __name__ == '__main__':
         divis = key
 
         if (key in next_match['Div'].unique()) == False:
-            logger.log('warning', f"No match to simulate for {divis}..")
+            print(f"WARNING: No match to simulate for {divis}..")
             continue
 
         prefix = "https://www.football-data.co.uk/"
         pre = F"new/{divi}.csv"
         path = prefix + pre
-        logger.log('info', f"Downloading {divis} data..", info=str(path))
+        print(f"Downloading {divis} data..", path)
         league_data, old_data = download_league_data(path)
 
-        logger.log('info', f"Calculating standings for {divis}..")
+        print(f"Calculating standings for {divis}..")
         Standings = {}
         standings_df = calc_standings(league_data)
 
-        logger.log('info', f"Calculating parameters for {divis}..")
+        print(f"Calculating parameters for {divis}..")
         try:
             params = solve_parameters_decay(league_data)
         except Exception as e:
-            logger.log('error', f"Simulating problem.. skipping {divis}.. ", info=str(e))
+            print(f"ERROR: Simulating problem.. skipping {divis}.. ", e)
             continue
 
-        logger.log('info', f"Simulating matches for {divis}..")
+        print(f"Simulating matches for {divis}..")
         for match in next_match.loc[next_match['Div']==divis].index:
             ht = next_match['HomeTeam'][match]
             at = next_match['AwayTeam'][match]
@@ -730,7 +715,7 @@ if __name__ == '__main__':
             try:
                 result = dixon_coles_simulate_match(params, ht, at)
             except Exception as e:
-                logger.log('error', f"Issue encountered during simulation of {ht, at}", info=str(e))
+                print(f"ERROR: Issue encountered during simulation of {ht, at}", e)
                 continue
 
             res = resultdef(result, ht, at, divis, mdate, mtime, standings_df, old_data, league_data)
@@ -738,9 +723,9 @@ if __name__ == '__main__':
             div_df = pd.concat([div_df, res])
         
         try:
-            logger.log('info', f"{divis} completed. Appending data to csv..")
+            print(f"{divis} completed. Appending data to csv..")
             save_results_(div_df)
         except Exception as e:
-            logger.log('critical', f"Issue during saving of {divis}..", info=str(e))
+            print(f"CRITICAL: Issue during saving of {divis}..", e)
 
-    logger.log('info', 'Simulation completed..')
+    print('Simulation completed..')

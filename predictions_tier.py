@@ -5,13 +5,10 @@ import numpy as np
 import pandas as pd
 from datetime import datetime, timedelta
 import datetime, os, re
-from jsonlogger_class import JSONLogger
 from openpyxl import load_workbook
 from openpyxl.worksheet.table import Table, TableStyleInfo
 from openpyxl.utils import get_column_letter
 
-LOGPATH = 'logs/data/'
-LOGNAME = '{date}_tipsselection_logs'
 DATANAME = 'my_prediction_data_{date1}_{date2}'
 DATAPATH = 'predictions_data/'
 PUBLISHPATH = 'publish/'
@@ -51,7 +48,7 @@ LEAGUES = {'EN PremierLeague': 'E0',
 today_str = datetime.datetime.today().strftime("%d-%m-%Y")
 
 def savetoexcel_format(df, excel_file):
-    logger.log('info', 'Saving into a nice excel..', info=excel_file)
+    print('Saving into a nice excel..', excel_file)
     df.to_excel(excel_file, index=False, sheet_name="Sheet1")
 
     # Load workbook with openpyxl
@@ -101,7 +98,7 @@ def savetoexcel_format(df, excel_file):
     wb.save(excel_file)
 
 def newest_predictions() -> str:
-    logger.log('info', 'Searching latest prediction file..')
+    print('Searching latest prediction file..')
     files = os.listdir(DATAPATH)
 
     paths = []
@@ -111,10 +108,10 @@ def newest_predictions() -> str:
 
     try:
         file = max(paths, key=os.path.getctime)
-        logger.log('info', f'File found..', file)
+        print(f'File found..', file)
         return file
     except:
-        logger.log('error', f'File not found..')
+        print(f'ERROR: File not found..')
         return('\\99999999')
 
 def get_color(val):
@@ -252,7 +249,7 @@ def advance_sorting(top_picks):
 def main():
     filename = newest_predictions()
     
-    logger.log('info', f'Loading file..', filename)
+    print(f'Loading file..', filename)
     df_full = pd.read_csv(filename)
     df_full.rename(columns={'History %': 'History H2H'}, inplace=True)
     # Reverse the LEAGUES dict
@@ -261,7 +258,7 @@ def main():
     # Map the 'div' column
     df_full['Division'] = df_full['Division'].map(code_to_name)
 
-    logger.log('info', f'Map predictions to friendly names..')
+    print(f'Map predictions to friendly names..')
     prediction_map = {
         "O1_5": "Over 1.5 Goals",
         "O2_5": "Over 2.5 Goals",
@@ -296,7 +293,7 @@ def main():
     # Loop through each unique date
     for match_date, df_date in df_full.groupby("AdjustedDate"):
         date_str = pd.to_datetime(match_date).strftime("%Y-%m-%d")
-        logger.log('info', f'Processing date: {date_str}')
+        print(f'Processing date: {date_str}')
 
         # Convert Prediction % from decimal to real % float (before formatting)
         df_date["PredValue"] = df_date["Prediction %"].apply(lambda s: float(str(s).replace('%', '').strip()))
@@ -328,12 +325,12 @@ def main():
         # Fallback if no matches meet criteria
         if top_picks.empty:
             top_picks = df_date.sort_values(by="PredValue", ascending=False).head(5)
-            logger.log('warning', f"No matches met criteria for {date_str}, fallback to top 5 by Prediction %")
+            print(f"WARNING: No matches met criteria for {date_str}, fallback to top 5 by Prediction %")
         
         df_date = df_date.drop(columns=["PredValue", "HistValue", "ConfScore", "Datetime_temp", "AdjustedDate"])
 
         # Tier 1: Top 3 picks (Division, Match, Prediction)
-        logger.log('info', f'Creating Public: 3 daily picks..')
+        print(f'Creating Public: 3 daily picks..')
         # Step 1: For each match, randomly select one prediction row
         one_per_match = top_picks.groupby("Match").apply(lambda x: x.sample(1)).reset_index(drop=True)
 
@@ -352,7 +349,7 @@ def main():
         with open(f"{PUBLISHPATH}/Public_{date_str}.txt", "w", encoding="utf-8") as f:
             f.write(public_tg)
 
-        logger.log('info', f'Creating VIP: Top 10 picks + reasoning + csv..')
+        print(f'Creating VIP: Top 10 picks + reasoning + csv..')
         vip = advance_sorting(top_picks)
 
         # Telegram-friendly VIP list
@@ -381,13 +378,10 @@ def main():
         savetoexcel_format(df_save, filename)
         #df_date.to_csv(csv_filename, index=False)
 
-    logger.log('info', f'Telegram content generated..')
+    print(f'Telegram content generated..')
     return
 
 if __name__ == '__main__':
     os.chdir(os.path.dirname(__file__))
-    datesave = datetime.date.today().strftime('%Y%m%d')
-    LOGNAME = LOGNAME.replace('{date}', datesave) + '.json'
-    logger = JSONLogger(log_file=LOGNAME, log_dir=LOGPATH)
 
     main()

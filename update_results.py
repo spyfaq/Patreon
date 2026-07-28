@@ -2,8 +2,7 @@
 # -*- coding: utf-8 -*-
 
 import pandas as pd
-from jsonlogger_class import JSONLogger
-import os, datetime, glob
+import os, glob
 
 """
 Running year and leagues
@@ -48,8 +47,6 @@ LEAGUES2 = {
 Path to save  data
 """
 DATAPATH = 'publish/'
-LOGPATH = 'logs/mine/'
-LOGNAME = '{date}_my_results_logs'
 
 def find_VIP_files():
     print(f'Looking for VIP files to update ..')
@@ -172,10 +169,6 @@ def match_matched(results):
         os.remove(file)
 
 if __name__ == '__main__':
-    datesave = datetime.date.today().strftime('%Y%m%d')
-    LOGNAME = LOGNAME.replace('{date}', datesave) + '.json'
-    logger = JSONLogger(log_file=LOGNAME, log_dir=LOGPATH)
-
     league_data_full = pd.DataFrame()
     for key in LEAGUES:
         divis = LEAGUES[key]

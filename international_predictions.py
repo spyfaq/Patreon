@@ -20,12 +20,22 @@ scripts do straight from the football-data.co.uk fixtures feed.
 Reuses the core Dixon-Coles modeling/output logic from
 majorleague_predictions.py (dixon_coles_simulate_match, solve_parameters_decay,
 resultdef, calculate_win_and_goal_form, calc_standings, load/save_cached_params)
+<<<<<<< HEAD
 instead of duplicating ~500 lines of proven, tested code. resultdef()
 internally references a couple of module-level globals (path, historyfunc)
 that only get set when majorleague_predictions.py runs as __main__ -- since
 we're importing it instead, those are patched below to route through this
 script's own history logic. This is intentional, not a workaround for a
 bug -- see the "Patch mlp's internals" section below for exactly what and why.
+=======
+instead of duplicating ~500 lines of proven, tested code (including the bet
+builder combo math). resultdef() internally references a couple of
+module-level globals (path, historyfunc) that only get set when
+majorleague_predictions.py runs as __main__ -- since we're importing it
+instead, those are patched below to route through this script's own
+history logic. This is intentional, not a workaround for a bug --
+see the "Patch mlp's internals" section below for exactly what and why.
+>>>>>>> a25742a0b0cc1fb64d6c5769f13750c09ceb2857
 
 The football-data.org API access itself (auth, retries, rate limiting,
 match-object parsing) lives in football_data_org_client.py, shared with
@@ -41,9 +51,12 @@ import numpy as np
 import majorleague_predictions as mlp
 import football_data_org_client as fdo
 import date_utils
+<<<<<<< HEAD
 import odds_client
 import odds_utils
 import team_utils
+=======
+>>>>>>> a25742a0b0cc1fb64d6c5769f13750c09ceb2857
 
 COMPETITIONS = fdo.COMPETITIONS
 
@@ -179,10 +192,18 @@ def save_results_(df):
 
 def patch_mlp_internals(hist_df, competition_code):
     """resultdef() reaches for `path` and `historyfunc` as module-level
+<<<<<<< HEAD
     globals in majorleague_predictions.py's own namespace -- those only
     get set there when that file runs as __main__. Since we're importing
     it instead, point them at our own equivalents so resultdef's internal
     history call works correctly without duplicating its ~100 lines here.
+=======
+    globals in majorleague_predictions.py's own namespace -- those only get
+    set there when that file runs as __main__. Since we're importing it
+    instead, point them at our own equivalents so resultdef's internal
+    history calls work correctly without duplicating its ~130 lines
+    (including the bet-builder combo math) here.
+>>>>>>> a25742a0b0cc1fb64d6c5769f13750c09ceb2857
     """
     mlp.path = competition_code  # placeholder value; our historyfunc ignores it
 
@@ -208,7 +229,11 @@ def run_competition(name, code):
     try:
         standings_df = mlp.calc_standings(hist_df)
     except Exception as e:
+<<<<<<< HEAD
         print(f"ERROR: Error calculating standings for {name}.. ({e})")
+=======
+        print(f"ERROR: Error calculating standings for {name}..", e)
+>>>>>>> a25742a0b0cc1fb64d6c5769f13750c09ceb2857
         return pd.DataFrame()
 
     try:
@@ -217,7 +242,11 @@ def run_competition(name, code):
         params = mlp.solve_parameters_decay(hist_df, init_vals=warm_start)
         mlp.save_cached_params(code, params)
     except Exception as e:
+<<<<<<< HEAD
         print(f"ERROR: Error fitting parameters for {name}.. ({e})")
+=======
+        print(f"ERROR: Error fitting parameters for {name}..", e)
+>>>>>>> a25742a0b0cc1fb64d6c5769f13750c09ceb2857
         return pd.DataFrame()
 
     patch_mlp_internals(hist_df, code)
@@ -231,7 +260,11 @@ def run_competition(name, code):
         try:
             result = mlp.dixon_coles_simulate_match(params, ht, at)
         except Exception as e:
+<<<<<<< HEAD
             print(f"ERROR: Issue simulating {ht} vs {at} ({name}) ({e})")
+=======
+            print(f"ERROR: Issue simulating {ht} vs {at} ({name})", e)
+>>>>>>> a25742a0b0cc1fb64d6c5769f13750c09ceb2857
             continue
 
         match_odds = odds_for_fixture(odds_df, ht, at)
@@ -252,7 +285,11 @@ def main():
             res = run_competition(name, code)
             results_df = pd.concat([results_df, res])
         except Exception as e:
+<<<<<<< HEAD
             print(f"ERROR: Unhandled error processing {name} ({code}).. ({e})")
+=======
+            print(f"ERROR: Unhandled error processing {name} ({code})..", e)
+>>>>>>> a25742a0b0cc1fb64d6c5769f13750c09ceb2857
             continue
 
     if results_df.empty:
@@ -272,5 +309,9 @@ if __name__ == '__main__':
     try:
         main()
     except Exception as e:
+<<<<<<< HEAD
         print(f"CRITICAL: Unhandled exception in international_predictions.py ({e})")
+=======
+        print("CRITICAL: Unhandled exception in international_predictions.py", e)
+>>>>>>> a25742a0b0cc1fb64d6c5769f13750c09ceb2857
         raise

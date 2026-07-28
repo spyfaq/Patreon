@@ -54,12 +54,15 @@ Path to save  data
 DATAPATH = 'predictions_data/'
 DATANAME = 'my_prediction_minor_data_{date1}_{date2}'
 PARAMSPATH = 'model_params/'
+<<<<<<< HEAD
 
 # One row per (match, prediction), each carrying the bookmaker odd for
 # that specific prediction -- see resultdef().
 OUTPUT_COLUMNS = ["Division", "Date", "Time", "HomeTeam", "AwayTeam", "Prediction", "Odd",
                   "Prediction %", "History %", "HomeTeam Stats", "AwayTeam Stats",
                   "HomeForm", "AwayForm"]
+=======
+>>>>>>> a25742a0b0cc1fb64d6c5769f13750c09ceb2857
 
 warnings.filterwarnings('ignore')
 
@@ -178,7 +181,11 @@ def dixon_coles_simulate_match(params_dict, homeTeam, awayTeam, max_goals=5):
 
     total = output_matrix.sum()
     if total <= 0 or not np.isfinite(total):
+<<<<<<< HEAD
         print(f"ERROR: Non-positive total probability for {homeTeam}-{awayTeam} ({total})")
+=======
+        print(f"ERROR: Non-positive total probability for {homeTeam}-{awayTeam}", total)
+>>>>>>> a25742a0b0cc1fb64d6c5769f13750c09ceb2857
         sz = output_matrix.shape[0]
         return np.ones((sz, sz)) / (sz * sz)
 
@@ -389,7 +396,14 @@ def resultdef(result, ht, at, divis, mdata, mtime, standings, old_df, lgdata, od
 
     outcome = pd.DataFrame(columns=OUTPUT_COLUMNS)
 
+<<<<<<< HEAD
     print(f"Calculating class history for {ht}-{at}")
+=======
+    outcome = pd.DataFrame(columns=["Division", "Date", "Time", "HomeTeam", "AwayTeam", "Prediction", "Prediction %", 
+                             "History %", "HomeTeam Stats", "AwayTeam Stats", "HomeForm", "AwayForm"])
+    
+    print("Calculating class history", f'{ht}-{at}')
+>>>>>>> a25742a0b0cc1fb64d6c5769f13750c09ceb2857
     hist_dict = historyfunc(path, ht, at, old_df)
     rows = []
 
@@ -402,8 +416,14 @@ def resultdef(result, ht, at, divis, mdata, mtime, standings, old_df, lgdata, od
         if val > this_thresh:
             try:
                 hist_perc = hist_dict[res]
+<<<<<<< HEAD
             except KeyError:
                 print(f"WARNING: No history data for {ht}-{at} ({res})")
+=======
+            except:
+                if not is_combo:
+                    print(f"WARNING: No history data for {ht}-{at}")
+>>>>>>> a25742a0b0cc1fb64d6c5769f13750c09ceb2857
                 hist_perc = '-'
 
             # calc_standings() only creates a row for a team that has
@@ -584,9 +604,15 @@ def save_results_(df):
         towrite['Datetime_temp'] = towrite.apply(lambda x: pd.Timestamp.combine(x['Date_temp'], x['Time_temp']), axis=1)
         towrite.sort_values(by=['Datetime_temp', 'HomeTeam'], inplace=True)
         towrite.drop(columns=['Date_temp', 'Time_temp', 'Datetime_temp'],inplace=True)
+<<<<<<< HEAD
     except Exception as e:
         print(f"ERROR: Issue converting date.. Saving without sorting.. ({e})")
 
+=======
+    except:
+        print(f"ERROR: Issue converting date.. Saving without sorting..")
+        
+>>>>>>> a25742a0b0cc1fb64d6c5769f13750c09ceb2857
     towrite.to_csv(filename, index=False)
 
 def historyfunc(path, hw, aw, old_df):
@@ -875,8 +901,16 @@ if __name__ == '__main__':
     fromdate = min(next_match['Date']).strftime('%d%m%Y')
     todate = max(next_match['Date']).strftime('%d%m%Y')
     DATANAME = DATANAME.replace('{date1}', fromdate).replace('{date2}', todate) + '.csv'
+<<<<<<< HEAD
 
     print(f"Running for each league.. ({len(LEAGUES)})")
+=======
+    if os.path.exists(DATAPATH + '/' +DATANAME):
+        print("CRITICAL: Data exists already! Forced exit app!")
+        exit()
+
+    print("Running for each league..", len(LEAGUES))
+>>>>>>> a25742a0b0cc1fb64d6c5769f13750c09ceb2857
     results_df = pd.DataFrame()
     for key in LEAGUES:
 
@@ -891,7 +925,11 @@ if __name__ == '__main__':
         prefix = "https://www.football-data.co.uk/"
         pre = F"new/{divi}.csv"
         path = prefix + pre
+<<<<<<< HEAD
         print(f"Downloading {divis} data.. ({path})")
+=======
+        print(f"Downloading {divis} data..", path)
+>>>>>>> a25742a0b0cc1fb64d6c5769f13750c09ceb2857
         league_data, old_data = download_league_data(path)
 
         print(f"Calculating standings for {divis}..")
@@ -905,7 +943,11 @@ if __name__ == '__main__':
             params = solve_parameters_decay(league_data, init_vals=warm_start)
             save_cached_params(divis, params)
         except Exception as e:
+<<<<<<< HEAD
             print(f"ERROR: Simulating problem.. skipping {divis}.. ({e})")
+=======
+            print(f"ERROR: Simulating problem.. skipping {divis}.. ", e)
+>>>>>>> a25742a0b0cc1fb64d6c5769f13750c09ceb2857
             continue
 
         print(f"Simulating matches for {divis}..")
@@ -921,7 +963,11 @@ if __name__ == '__main__':
             try:
                 result = dixon_coles_simulate_match(params, ht, at)
             except Exception as e:
+<<<<<<< HEAD
                 print(f"ERROR: Issue encountered during simulation of {ht, at} ({e})")
+=======
+                print(f"ERROR: Issue encountered during simulation of {ht, at}", e)
+>>>>>>> a25742a0b0cc1fb64d6c5769f13750c09ceb2857
                 continue
 
             res = resultdef(result, ht, at, divis, mdate, mtime, standings_df, old_data, league_data,
@@ -933,6 +979,10 @@ if __name__ == '__main__':
             print(f"{divis} completed. Appending data to csv..")
             save_results_(div_df)
         except Exception as e:
+<<<<<<< HEAD
             print(f"CRITICAL: Issue during saving of {divis}.. ({e})")
+=======
+            print(f"CRITICAL: Issue during saving of {divis}..", e)
+>>>>>>> a25742a0b0cc1fb64d6c5769f13750c09ceb2857
 
     print('Simulation completed..')

@@ -2,10 +2,9 @@
 # -*- coding: utf-8 -*-
 
 import pandas as pd
-from jsonlogger_class import JSONLogger
 import football_data_org_client as fdo
 import team_utils
-import os, datetime, glob
+import os, glob
 
 """
 Running year and leagues
@@ -51,8 +50,6 @@ LEAGUES2 = {
 Path to save  data
 """
 DATAPATH = 'history/'
-LOGPATH = 'logs/mine/'
-LOGNAME = '{date}_my_results_logs'
 
 def find_VIP_files():
     print(f'Looking for VIP files to update ..')
@@ -126,7 +123,7 @@ def download_international_results(days_back=6):
     Madrid', this fetch would otherwise still say 'Real Madrid CF')."""
     frames = []
     for name, code in fdo.COMPETITIONS.items():
-        df = fdo.fetch_recent_finished(code, days_back=days_back, logger=logger)
+        df = fdo.fetch_recent_finished(code, days_back=days_back)
         if df.empty:
             continue
         df = df.rename(columns={'HomeGoals': 'FTHG', 'AwayGoals': 'FTAG'})
@@ -217,9 +214,6 @@ def match_matched(results):
         os.remove(file)
 
 if __name__ == '__main__':
-    datesave = datetime.date.today().strftime('%Y%m%d')
-    LOGNAME = LOGNAME.replace('{date}', datesave) + '.json'
-    logger = JSONLogger(log_file=LOGNAME, log_dir=LOGPATH)
 
     league_data_full = pd.DataFrame()
     for key in LEAGUES:
@@ -250,7 +244,7 @@ if __name__ == '__main__':
         # FOOTBALL_DATA_ORG_TOKEN missing/invalid, or the API being down,
         # shouldn't block settling the domestic leagues that already
         # downloaded fine above.
-        logger.log('warning', 'Could not fetch international results..', info=str(e))
+        print('WARNING: Could not fetch international results..', e)
 
     print(f'Evaluating Predictions ..')
     match_matched(league_data_full)

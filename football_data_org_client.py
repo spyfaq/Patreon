@@ -46,14 +46,13 @@ def _token():
     return token
 
 
-def api_get(path, params=None, retries=3, logger=None):
+def api_get(path, params=None, retries=3):
     headers = {"X-Auth-Token": _token()}
     url = f"{API_BASE}{path}"
     for attempt in range(retries):
         resp = requests.get(url, headers=headers, params=params, timeout=30)
         if resp.status_code == 429:
-            if logger:
-                logger.log('warning', "Rate limited, backing off..", info=str(url))
+            print("WARNING: Rate limited, backing off..", url)
             time.sleep(15)
             continue
         resp.raise_for_status()
@@ -72,7 +71,7 @@ def _extract_score(match):
 
 
 def fetch_matches(code, date_from=None, date_to=None, status=None, season=None,
-                   retries=3, logger=None):
+                   retries=3):
     """Generic v4 matches fetch for one competition code. Returns the raw
     'matches' list from the API (list of dicts), or [] on failure -- callers
     decide whether a fetch failure for one competition should be fatal."""
@@ -88,10 +87,9 @@ def fetch_matches(code, date_from=None, date_to=None, status=None, season=None,
 
     try:
         data = api_get(f"/competitions/{code}/matches", params=params,
-                        retries=retries, logger=logger)
+                        retries=retries)
     except Exception as e:
-        if logger:
-            logger.log('warning', f"Could not fetch {code} matches", info=str(e))
+        print(f"WARNING: Could not fetch {code} matches", e)
         return []
     return data.get('matches', [])
 
@@ -116,7 +114,7 @@ def matches_to_df(matches):
     return pd.DataFrame(rows)
 
 
-def fetch_historical_matches(code, seasons_back=4, logger=None):
+def fetch_historical_matches(code, seasons_back=4):
     """Pull recent seasons of FINISHED matches for Dixon-Coles fitting.
     football-data.org's free tier may not expose very old seasons -- fetch
     defensively season by season and use whatever comes back rather than
@@ -125,7 +123,7 @@ def fetch_historical_matches(code, seasons_back=4, logger=None):
     current_year = datetime.date.today().year
     for offset in range(seasons_back):
         season = current_year - offset
-        matches = fetch_matches(code, status="FINISHED", season=season, logger=logger)
+        matches = fetch_matches(code, status="FINISHED", season=season)
         for m in matches:
             home, away = _extract_score(m)
             if home is None or away is None:
@@ -145,20 +143,20 @@ def fetch_historical_matches(code, seasons_back=4, logger=None):
     return df
 
 
-def fetch_matches_on_date(code, date_str, status="SCHEDULED", logger=None):
+def fetch_matches_on_date(code, date_str, status="SCHEDULED"):
     """Matches for a single competition on a single ISO date (used for the
     1-day fixture window the rest of the pipeline uses)."""
     matches = fetch_matches(code, date_from=date_str, date_to=date_str,
-                             status=status, logger=logger)
+                             status=status)
     return matches_to_df(matches)
 
 
-def fetch_recent_finished(code, days_back=6, logger=None):
+def fetch_recent_finished(code, days_back=6):
     """FINISHED matches in a trailing window, for results settlement. Wider
     than the 1-day prediction window since settlement can lag a few days
     (weekends, tournament gaps between matchdays)."""
     date_to = datetime.date.today().isoformat()
     date_from = (datetime.date.today() - datetime.timedelta(days=days_back)).isoformat()
     matches = fetch_matches(code, date_from=date_from, date_to=date_to,
-                             status="FINISHED", logger=logger)
+                             status="FINISHED")
     return matches_to_df(matches)

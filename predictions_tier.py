@@ -5,7 +5,6 @@ import numpy as np
 import pandas as pd
 from datetime import datetime, timedelta
 import datetime, os, re
-from jsonlogger_class import JSONLogger
 from openpyxl import load_workbook
 from openpyxl.worksheet.table import Table, TableStyleInfo
 from openpyxl.utils import get_column_letter
@@ -13,8 +12,6 @@ import team_utils
 import date_utils
 import model_config
 
-LOGPATH = 'logs/data/'
-LOGNAME = '{date}_tipsselection_logs'
 DATANAME = 'my_prediction_data_{date1}_{date2}'
 DATAPATH = 'predictions_data/'
 PUBLISHPATH = 'publish/'
@@ -57,7 +54,7 @@ LEAGUES = {'EN PremierLeague': 'E0',
 today_str = datetime.datetime.today().strftime("%d-%m-%Y")
 
 def savetoexcel_format(df, excel_file):
-    logger.log('info', 'Saving into a nice excel..', info=excel_file)
+    print('Saving into a nice excel..', excel_file)
     df.to_excel(excel_file, index=False, sheet_name="Sheet1")
 
     # Load workbook with openpyxl
@@ -107,7 +104,7 @@ def savetoexcel_format(df, excel_file):
     wb.save(excel_file)
 
 def newest_predictions() -> str:
-    logger.log('info', 'Searching latest prediction file..')
+    print('Searching latest prediction file..')
     files = os.listdir(DATAPATH)
 
     paths = []
@@ -117,10 +114,10 @@ def newest_predictions() -> str:
 
     try:
         file = max(paths, key=os.path.getctime)
-        logger.log('info', f'File found..', file)
+        print(f'File found..', file)
         return file
     except:
-        logger.log('error', f'File not found..')
+        print(f'ERROR: File not found..')
         return('\\99999999')
 
 def get_color(val):
@@ -331,7 +328,7 @@ def resolve_match_conflicts(top_picks):
 def main():
     filename = newest_predictions()
     
-    logger.log('info', f'Loading file..', filename)
+    print(f'Loading file..', filename)
     df_full = pd.read_csv(filename)
     df_full.rename(columns={'History %': 'History H2H'}, inplace=True)
     if "AVGOdd" not in df_full.columns:
@@ -358,7 +355,7 @@ def main():
     # every match show 20+ near-random "picks" instead of one clear tip.
     df_full = df_full[~df_full['Prediction'].astype(str).str.contains('+', regex=False)].copy()
 
-    logger.log('info', f'Map predictions to friendly names..')
+    print(f'Map predictions to friendly names..')
     prediction_map = {
         "O1_5": "Over 1.5 Goals",
         "O2_5": "Over 2.5 Goals",
@@ -396,7 +393,7 @@ def main():
     # Loop through each unique date
     for match_date, df_date in df_full.groupby("AdjustedDate"):
         date_str = pd.to_datetime(match_date).strftime("%Y-%m-%d")
-        logger.log('info', f'Processing date: {date_str}')
+        print(f'Processing date: {date_str}')
 
         # Convert Prediction % from decimal to real % float (before formatting)
         df_date["PredValue"] = df_date["Prediction %"].apply(lambda s: float(str(s).replace('%', '').strip()))
@@ -475,7 +472,7 @@ def main():
         # Fallback if no matches meet criteria
         if top_picks.empty:
             top_picks = df_date.sort_values(by="PredValue", ascending=False).head(5)
-            logger.log('warning', f"No matches met criteria for {date_str}, fallback to top 5 by Prediction %")
+            print(f"WARNING: No matches met criteria for {date_str}, fallback to top 5 by Prediction %")
         
         df_date = df_date.drop(columns=["AdjustedDate"])
 
@@ -486,7 +483,7 @@ def main():
 
         # Tier 1: 3 random matches from the VIP-quality list, using each
         # match's single best pick.
-        logger.log('info', f'Creating Public: 3 daily picks..')
+        print(f'Creating Public: 3 daily picks..')
         public = vip_all.sample(n=min(3, len(vip_all)), random_state=42)
 
         # Telegram-friendly public list
@@ -501,7 +498,7 @@ def main():
         with open(f"{PUBLISHPATH}/Public_{date_str}.txt", "w", encoding="utf-8") as f:
             f.write(public_tg)
 
-        logger.log('info', f'Creating VIP: Top 10 picks + reasoning + csv..')
+        print(f'Creating VIP: Top 10 picks + reasoning + csv..')
         vip = vip_all.head(10)
 
         # Telegram-friendly VIP list
@@ -543,13 +540,10 @@ def main():
         savetoexcel_format(df_save, filename)
         #df_date.to_csv(csv_filename, index=False)
 
-    logger.log('info', f'Telegram content generated..')
+    print(f'Telegram content generated..')
     return
 
 if __name__ == '__main__':
     os.chdir(os.path.dirname(__file__))
-    datesave = datetime.date.today().strftime('%Y%m%d')
-    LOGNAME = LOGNAME.replace('{date}', datesave) + '.json'
-    logger = JSONLogger(log_file=LOGNAME, log_dir=LOGPATH)
 
     main()

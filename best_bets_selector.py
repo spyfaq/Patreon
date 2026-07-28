@@ -37,15 +37,12 @@ import re
 import datetime
 import numpy as np
 import pandas as pd
-from jsonlogger_class import JSONLogger
 import date_utils
 import team_utils
 import odds_client
 import odds_utils
 import model_config
 
-LOGPATH = 'logs/bestbets/'
-LOGNAME = '{date}_bestbets_logs'
 DATAPATH = 'predictions_data/'
 PUBLISHPATH = 'publish/'
 
@@ -112,14 +109,14 @@ def prediction_label(pred: str) -> str:
 
 
 def newest_predictions() -> str:
-    logger.log('info', 'Searching latest merged prediction file..')
+    print('Searching latest merged prediction file..')
     files = os.listdir(DATAPATH)
     paths = [os.path.join(DATAPATH, f) for f in files if 'my_prediction_data_' in f]
     if not paths:
-        logger.log('error', 'No merged prediction file found..')
+        print('ERROR: No merged prediction file found..')
         raise FileNotFoundError("No file matching 'my_prediction_data_*' in " + DATAPATH)
     file = max(paths, key=os.path.getctime)
-    logger.log('info', 'File found..', info=file)
+    print('File found..', file)
     return file
 
 
@@ -134,15 +131,14 @@ def fetch_market_odds() -> pd.DataFrame:
     considered an international pick even when predictions_tier.py's
     Excel had odds for one.
     """
-    logger.log('info', 'Fetching market odds (1X2 + O/U 2.5)..')
+    print('Fetching market odds (1X2 + O/U 2.5)..')
 
     cols_main = ['Date', 'Time', 'Div', 'HomeTeam', 'AwayTeam', 'AvgH', 'AvgD', 'AvgA']
     ou_candidates = ['Avg>2.5', 'Avg<2.5']
 
     f1 = pd.read_csv('https://www.football-data.co.uk/fixtures.csv', encoding='utf-8-sig')
     have_ou_1 = team_utils.find_columns(f1.columns, ou_candidates)
-    logger.log('info', f'Main fixtures O/U columns found: {have_ou_1 or "NONE"}',
-               info=str(list(f1.columns)))
+    print(f'Main fixtures O/U columns found: {have_ou_1 or "NONE"}', list(f1.columns))
     # Select defensively, exactly as the new_league fetch below already
     # did. Selecting cols_main strictly raised
     #   KeyError: "['Date', 'Time'] not in index"
@@ -155,15 +151,13 @@ def fetch_market_odds() -> pd.DataFrame:
     # for that field", never abort the run.
     missing_1 = [c for c in cols_main if c not in f1.columns]
     if missing_1:
-        logger.log('warning', f'fixtures.csv missing expected columns: {missing_1}',
-                   info=str(list(f1.columns)))
+        print(f'WARNING: fixtures.csv missing expected columns: {missing_1}', list(f1.columns))
     f1 = f1[[c for c in cols_main if c in f1.columns] + have_ou_1]
 
     f2 = pd.read_csv('https://www.football-data.co.uk/new_league_fixtures.csv', encoding='utf-8-sig')
     f2 = f2.rename(columns={'Country': 'Div', 'Home': 'HomeTeam', 'Away': 'AwayTeam'})
     have_ou_2 = team_utils.find_columns(f2.columns, ou_candidates)
-    logger.log('info', f'New-league fixtures O/U columns found: {have_ou_2 or "NONE"}',
-               info=str(list(f2.columns)))
+    print(f'New-league fixtures O/U columns found: {have_ou_2 or "NONE"}', list(f2.columns))
     f2 = f2[[c for c in cols_main if c in f2.columns] + have_ou_2]
 
     odds = pd.concat([f1, f2], ignore_index=True)
@@ -177,12 +171,12 @@ def fetch_market_odds() -> pd.DataFrame:
 
     odds_cols = ['HomeTeam', 'AwayTeam', 'AvgH', 'AvgD', 'AvgA', 'AvgOver25', 'AvgUnder25']
     n_over25 = odds['AvgOver25'].notna().sum()
-    logger.log('info', f'Domestic odds: {len(odds)} fixtures, {n_over25} with an Over 2.5 price.')
+    print(f'Domestic odds: {len(odds)} fixtures, {n_over25} with an Over 2.5 price.')
 
     try:
-        intl_odds = odds_client.fetch_all_international_odds(logger=logger)
+        intl_odds = odds_client.fetch_all_international_odds()
     except Exception as e:
-        logger.log('warning', 'Could not fetch international odds..', info=str(e))
+        print('WARNING: Could not fetch international odds..', e)
         intl_odds = pd.DataFrame(columns=odds_cols)
 
     combined = pd.concat([odds[odds_cols], intl_odds[odds_cols] if not intl_odds.empty else intl_odds],
@@ -270,13 +264,13 @@ def attach_edges(df: pd.DataFrame) -> pd.DataFrame:
     # so this changes nothing until there's real settled history behind it.
     _cal = model_config.load_calibration()
     if _cal:
-        logger.log('info', f'Applying probability calibration for markets: {sorted(_cal)}')
+        print(f'Applying probability calibration for markets: {sorted(_cal)}')
         df['ModelProb'] = [
             model_config.calibrate_prob(p, m, _cal)
             for p, m in zip(df['RawModelProb'], df['Prediction'])
         ]
     else:
-        logger.log('info', 'No calibration.json found -- using raw model probabilities '
+        print('No calibration.json found -- using raw model probabilities '
                             '(run backtest_calibration.py to generate one).')
         df['ModelProb'] = df['RawModelProb']
 
@@ -373,11 +367,11 @@ def select_best_bets(df: pd.DataFrame) -> pd.DataFrame:
     priced = _ranked_singles_pool(df)
 
     if priced.empty:
-        logger.log('warning', 'No matches cleared the edge/probability thresholds today.')
+        print('WARNING: No matches cleared the edge/probability thresholds today.')
         return priced
 
     if len(priced) < MIN_PICKS:
-        logger.log('info', f'Only {len(priced)} value bet(s) cleared the threshold today (below the usual {MIN_PICKS}-{MAX_PICKS} target).')
+        print(f'Only {len(priced)} value bet(s) cleared the threshold today (below the usual {MIN_PICKS}-{MAX_PICKS} target).')
     n_picks = min(MAX_PICKS, len(priced))
     best = priced.head(n_picks).copy()
 
@@ -416,11 +410,11 @@ def select_best_combo_bets(df: pd.DataFrame) -> pd.DataFrame:
     priced = _ranked_combo_pool(df)
 
     if priced.empty:
-        logger.log('info', 'No bet-builder combos cleared the edge/probability thresholds today.')
+        print('No bet-builder combos cleared the edge/probability thresholds today.')
         return priced
 
     if len(priced) < COMBO_MIN_PICKS:
-        logger.log('info', f'Only {len(priced)} bet-builder combo(s) cleared the threshold today.')
+        print(f'Only {len(priced)} bet-builder combo(s) cleared the threshold today.')
     n_picks = min(COMBO_MAX_PICKS, len(priced))
     best = priced.head(n_picks).copy()
 
@@ -464,7 +458,7 @@ def build_accumulator(df: pd.DataFrame) -> tuple:
         pool = pd.concat([pool, c])
 
     if pool.empty:
-        logger.log('info', 'No priced picks available to build a suggested-bets accumulator.')
+        print('No priced picks available to build a suggested-bets accumulator.')
         return pd.DataFrame(), None
 
     # One leg per match: if both a single and a combo qualified for the
@@ -485,11 +479,11 @@ def build_accumulator(df: pd.DataFrame) -> tuple:
             break
 
     if len(legs) < ACC_MIN_LEGS:
-        logger.log('info', f'Only {len(legs)} distinct-match leg(s) available -- below the {ACC_MIN_LEGS}-leg minimum for a suggested-bets slip today.')
+        print(f'Only {len(legs)} distinct-match leg(s) available -- below the {ACC_MIN_LEGS}-leg minimum for a suggested-bets slip today.')
         return pd.DataFrame(), None
 
     if agg_odd < TARGET_AGG_ODD:
-        logger.log('info', f'Best available {len(legs)}-leg combination only reaches {agg_odd:.2f}x -- below the {TARGET_AGG_ODD}x target, skipping suggested bets today.')
+        print(f'Best available {len(legs)}-leg combination only reaches {agg_odd:.2f}x -- below the {TARGET_AGG_ODD}x target, skipping suggested bets today.')
         return pd.DataFrame(), None
 
     legs_df = pd.DataFrame(legs)
@@ -588,14 +582,14 @@ def main():
     try:
         _main_impl()
     except Exception as e:
-        logger.log('error', 'best_bets_selector.py failed before producing output -- writing failure explanation files.', info=str(e))
+        print('ERROR: best_bets_selector.py failed before producing output -- writing failure explanation files.', e)
         _write_failure_files(str(e), date_strs=date_utils.relevant_date_strs())
         raise  # still surface the failure in the job's exit code/logs
 
 
 def _main_impl():
     filename = newest_predictions()
-    logger.log('info', 'Loading merged predictions..', info=filename)
+    print('Loading merged predictions..', filename)
     df = pd.read_csv(filename)
 
     odds = fetch_market_odds()
@@ -634,7 +628,7 @@ def _main_impl():
         # The merged predictions file itself had no rows -- distinct from
         # "ran fine, nothing cleared the value bar", which format_telegram/
         # format_suggested_bets already handle with their own message.
-        logger.log('warning', 'Merged predictions file has no rows -- nothing to select from.')
+        print('WARNING: Merged predictions file has no rows -- nothing to select from.')
         _write_failure_files("No predictions available to select from (merged file was empty).",
                               date_strs=date_utils.relevant_date_strs())
         return
@@ -651,16 +645,16 @@ def _main_impl():
             _write_txt("BestBets", date_str, tg_text)
 
             if not best.empty:
-                logger.log('info', f'Selected {len(best)} best bets for {date_str}.', info=str(best["Match"].tolist()))
+                print(f'Selected {len(best)} best bets for {date_str}.', best["Match"].tolist())
             else:
-                logger.log('warning', f'No best bets selected for {date_str}.')
+                print(f'WARNING: No best bets selected for {date_str}.')
 
             if not combo_best.empty:
-                logger.log('info', f'Selected {len(combo_best)} bet-builder combos for {date_str}.', info=str(combo_best["Match"].tolist()))
+                print(f'Selected {len(combo_best)} bet-builder combos for {date_str}.', combo_best["Match"].tolist())
             else:
-                logger.log('info', f'No bet-builder combos selected for {date_str}.')
+                print(f'No bet-builder combos selected for {date_str}.')
         except Exception as e:
-            logger.log('error', f'Best Bets generation failed for {date_str} -- writing failure explanation.', info=str(e))
+            print(f'ERROR: Best Bets generation failed for {date_str} -- writing failure explanation.', e)
             _write_txt("BestBets", date_str, _failure_message("BestBets", date_str, str(e)))
 
         # Suggested Bets: one combined 4-6 leg accumulator (singles
@@ -675,11 +669,11 @@ def _main_impl():
             _write_txt("SuggestedBets", date_str, suggested_text)
 
             if not legs.empty:
-                logger.log('info', f'Built a {len(legs)}-leg suggested bets slip at {agg_odd:.2f}x for {date_str}.', info=str(legs["Match"].tolist()))
+                print(f'Built a {len(legs)}-leg suggested bets slip at {agg_odd:.2f}x for {date_str}.', legs["Match"].tolist())
             else:
-                logger.log('info', f'No suggested-bets accumulator built for {date_str}.')
+                print(f'No suggested-bets accumulator built for {date_str}.')
         except Exception as e:
-            logger.log('error', f'Suggested Bets generation failed for {date_str} -- writing failure explanation.', info=str(e))
+            print(f'ERROR: Suggested Bets generation failed for {date_str} -- writing failure explanation.', e)
             _write_txt("SuggestedBets", date_str, _failure_message("SuggestedBets", date_str, str(e)))
 
         print(tg_text if tg_text is not None else f"(Best Bets for {date_str} failed -- see logs)")
@@ -687,12 +681,9 @@ def _main_impl():
 
 if __name__ == '__main__':
     os.chdir(os.path.dirname(__file__))
-    datesave = datetime.date.today().strftime('%Y%m%d')
-    LOGNAME = LOGNAME.replace('{date}', datesave) + '.json'
-    logger = JSONLogger(log_file=LOGNAME, log_dir=LOGPATH)
 
     try:
         main()
     except Exception as e:
-        logger.log('critical', "Exception occurred while running best_bets_selector", info=str(e))
+        print("CRITICAL: Exception occurred while running best_bets_selector", e)
         raise

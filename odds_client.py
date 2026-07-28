@@ -48,7 +48,7 @@ def _average(values):
     return sum(vals) / len(vals) if vals else None
 
 
-def fetch_odds_for_competition(code, logger=None):
+def fetch_odds_for_competition(code):
     """Fetch upcoming h2h + totals odds for one international competition,
     shaped into the same Avg*/Date/Time/Div/HomeTeam/AwayTeam columns
     odd_addition() already expects from football-data.co.uk, so it plugs
@@ -74,8 +74,7 @@ def fetch_odds_for_competition(code, logger=None):
         resp.raise_for_status()
         events = resp.json()
     except Exception as e:
-        if logger:
-            logger.log('warning', f"Could not fetch odds for {code} ({sport_key})", info=str(e))
+        print(f"WARNING: Could not fetch odds for {code} ({sport_key})", e)
         return pd.DataFrame()
 
     rows = []
@@ -124,11 +123,11 @@ def fetch_odds_for_competition(code, logger=None):
     return pd.DataFrame(rows)
 
 
-def fetch_all_international_odds(logger=None):
+def fetch_all_international_odds():
     """Odds for all 3 international competitions, concatenated into one
     DataFrame ready to be appended alongside the football-data.co.uk
     fixtures in odd_addition()."""
-    frames = [fetch_odds_for_competition(code, logger=logger) for code in SPORT_KEYS]
+    frames = [fetch_odds_for_competition(code) for code in SPORT_KEYS]
     frames = [f for f in frames if not f.empty]
     if not frames:
         return pd.DataFrame(columns=['Date', 'Time', 'Div', 'HomeTeam', 'AwayTeam',

@@ -28,9 +28,9 @@ Both sides now use the same 09:00 cutoff and live here:
     today's run -- day X from 09:00 onward, plus day X+1 up to 09:00.
   - adjusted_date_series(): which day's batch an ALREADY-FETCHED row
     belongs to -- used for grouping/labeling/filenames.
-Every script that needs either answer (predictions_tier.py,
-best_bets_selector.py, post_from_dropbox.py, and now the fetch scripts
-too) uses these instead of each one potentially drifting out of sync.
+Every script that needs either answer (publish_predictions.py,
+post_to_telegram.py, and the fetch scripts) uses these instead of each
+one potentially drifting out of sync.
 """
 
 import datetime

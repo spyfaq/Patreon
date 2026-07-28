@@ -1,12 +1,12 @@
 name: Settle Results
 
-# Runs daily, 1 hour before predictions_pipeline.yml's daily 11:00 UTC
-# generation run. Each batch now covers a rolling [08:00, next-day 08:00)
-# window (see date_utils.py) rather than a plain calendar day -- e.g.
-# yesterday's generation run produced a batch spanning [yesterday 08:00,
-# today 08:00). That window closed 2 hours before this job runs, giving
-# it the same settling margin as before, just for a window-based reason
-# instead of a calendar-day one.
+# Runs daily at 10:00 UTC, ahead of predictions_pipeline.yml's generation
+# run (11:00 UTC most days; 13:00 Tuesday and 15:00 Friday, see that
+# workflow). Each batch covers a rolling [09:00, next-day 09:00) window
+# (see date_utils.py) rather than a plain calendar day -- so yesterday's
+# generation run produced a batch spanning [yesterday 09:00, today
+# 09:00). That window closes an hour before this job runs, so every match
+# in the batch has kicked off and can be settled.
 on:
   schedule:
     - cron: "00 10 * * *" # Daily at 13:00 Greek (1h before generation)
